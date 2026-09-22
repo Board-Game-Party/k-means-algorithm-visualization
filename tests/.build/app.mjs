@@ -4,6 +4,50 @@
 const COLORS = ["#60a5fa","#f472b6","#34d399","#fbbf24","#a78bfa","#22d3ee","#fb923c","#f87171"];
 const NAMES  = ["Cluster A","Cluster B","Cluster C","Cluster D","Cluster E","Cluster F","Cluster G","Cluster H"];
 const GREY   = "#64748b";
+
+/* K and n are NOT capped at a fixed number. The only bound k-means itself imposes is
+   1 ≤ K ≤ N (you cannot form more non-empty clusters than you have points), so the
+   palette and the cluster names have to keep going for any K the user asks for. */
+const KMIN = 1;
+/** HSL → #rrggbb, so every cluster colour stays a hex string and the "+33" alpha suffixes keep working */
+function hslHex(h, s, l){
+  const f = n => {
+    const k = (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(v * 255).toString(16).padStart(2, "0");
+  };
+  return "#" + f(0) + f(8) + f(4);
+}
+/** Colour for cluster i — the 8 hand-picked hues first, then a golden-angle sweep so any K stays distinguishable */
+function colorFor(i){
+  if(i < 0) return GREY;
+  if(i < COLORS.length) return COLORS[i];
+  return hslHex(((i - COLORS.length) * 137.508) % 360, 0.68, 0.63);
+}
+/** Name for cluster i — A…H from NAMES, then I, J … Z, AA, AB … (spreadsheet style, unbounded) */
+function nameFor(i){
+  if(i < 0) return "unassigned";
+  if(i < NAMES.length) return NAMES[i];
+  let s = "", n = i;
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while(n >= 0);
+  return "Cluster " + s;
+}
+/** Read a positive integer out of a number input; blank/garbage falls back to `dflt` */
+function readInt(id, dflt, min = 1){
+  const v = Math.round(+$(id).value);
+  return Number.isFinite(v) && v >= min ? v : dflt;
+}
+/** How many clusters the current data can actually support: K ≤ N */
+const kCap = () => S.points.length;
+/** Distinct coordinates — the tighter bound: identical points can never be split into different clusters */
+function distinctPoints(pts = S.points){
+  const seen = new Set();
+  for(const p of pts) seen.add(p.x.toFixed(4) + "|" + p.y.toFixed(4));
+  return seen.size;
+}
+/** Is the requested K runnable on the current data? (the N ≥ K rule) */
+const kFeasible = () => S.points.length >= S.k && S.k >= KMIN;
+
 const EPS    = 1e-6;            // convergence threshold (logical units)
 const SPEEDS = [900, 480, 240, 60];
 const SPDLBL = ["Slow","Normal","Fast","Instant"];
@@ -26,7 +70,7 @@ const chart  = $("chart"),  cctx = chart.getContext("2d");
 let cw = 0, ch = 0, plotW = 0, plotH = 0, unit = 1, ox = 0, oy = 0;
 
 /* ======================= GEOMETRY + VIEW (pan / zoom) ======================= */
-const ZMIN = 0.4, ZMAX = 8;
+const ZMIN = 0.05, ZMAX = 8;
 const V = { z: 1, px: 0, py: 0 };        // z = zoom, px/py = pan offset in screen pixels
 S.view = V;
 
@@ -34,15 +78,10 @@ const sc = () => unit * V.z;             // pixels per logical unit, zoom includ
 const px = p => ({ x: ox + p.x * sc() + V.px, y: oy + plotH - p.y * sc() + V.py });
 const toLogical = (mx, my) => ({ x: (mx - ox - V.px) / sc(), y: (plotH - (my - oy - V.py)) / sc() });
 const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
-const inWorld = p => p.x >= 0 && p.x <= LX && p.y >= 0 && p.y <= LY;
+const inWorld = p => true;
 
 /* Keep the data frame from being panned off screen — always leave at least 60px visible */
-function clampPan(){
-  const m = 60, wW = LX * sc(), wH = LY * sc();
-  V.px = Math.min(plotW - m, Math.max(m - wW, V.px));
-  V.py = Math.min(wH - m, Math.max(m - plotH, V.py));
-  markView();
-}
+function clampPan() { markView(); }
 /* Mirror the view state onto the DOM so external tests can read it without touching internals */
 function markView(){
   canvas.dataset.view = V.z.toFixed(3) + "," + V.px.toFixed(1) + "," + V.py.toFixed(1);
@@ -58,6 +97,27 @@ function zoomAt(mx, my, factor){
   clampPan(); syncView();
 }
 function resetView(){ V.z = 1; V.px = 0; V.py = 0; syncView(); }
+
+function focusView(){
+  const all = [...S.points, ...S.centroids];
+  if(!all.length){ resetView(); return; }
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for(const p of all){
+    if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+    if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
+  }
+  const pdX = (maxX - minX) * 0.1 || 10, pdY = (maxY - minY) * 0.1 || 10;
+  minX -= pdX; maxX += pdX; minY -= pdY; maxY += pdY;
+  
+  const zx = plotW / ((maxX - minX) * unit), zy = plotH / ((maxY - minY) * unit);
+  V.z = Math.min(ZMAX, Math.max(ZMIN, Math.min(zx, zy)));
+  
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  V.px = plotW / 2 - cx * sc();
+  V.py = cy * sc() - plotH / 2;
+  markView(); syncView();
+}
+
 function syncView(){ $("lblZoom").textContent = Math.round(V.z * 100) + "%"; markView(); }
 
 function resize(){
@@ -82,11 +142,7 @@ function resize(){
 }
 
 /* Shrinking the window narrows LX — pull stranded points back into view */
-function clampToView(){
-  const mx = LX - 1.5;
-  for(const p of S.points) if(p.x > mx) p.x = mx;
-  for(const c of S.centroids) if(c.x > mx){ c.x = mx; c.ax = Math.min(c.ax, mx); }
-}
+function clampToView(){}
 
 /* ======================= DATA GENERATION ======================= */
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -119,16 +175,17 @@ function spreadCenters(g){
 }
 
 function generate(){
-  const n = +$("inN").value, kind = $("inData").value, pts = [];
+  const n = readInt("inN", 150), kind = $("inData").value, pts = [];
   if(kind === "blobs"){
-    const g = Math.max(2, Math.min(5, S.k)), cs = spreadCenters(g), sd = sdFor(g);
-    for(let i = 0; i < g; i++) blob(cs[i].x, cs[i].y, sd, Math.round(n / g), pts);
+    /* one blob per cluster the user asked for, but never more blobs than points */
+    const g = Math.max(1, Math.min(8, S.k, n)), cs = spreadCenters(g), sd = sdFor(g);
+    for(let i = 0; i < g; i++) blob(cs[i].x, cs[i].y, sd, Math.max(1, Math.round(n / g)), pts);
   } else if(kind === "sizes"){
     const cs = spreadCenters(3), w = [0.08, 0.25, 0.67], sd = sdFor(3) * 0.95;
-    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sd, Math.max(6, Math.round(n * w[i])), pts);
+    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sd, Math.max(1, Math.round(n * w[i])), pts);
   } else if(kind === "density"){
     const cs = spreadCenters(3), b = sdFor(3), sd = [b * 0.34, b, b * 2.1];
-    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sd[i], Math.round(n / 3), pts);
+    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sd[i], Math.max(1, Math.round(n / 3)), pts);
   } else if(kind === "rings"){
     const half = Math.round(n / 2), R = Math.min(LX, LY) / 2, cx = LX / 2, cy = LY / 2;
     for(let i = 0; i < half; i++){
@@ -140,9 +197,9 @@ function generate(){
       pts.push(clampPt({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }));
     }
   } else {
-    const cs = spreadCenters(3);
-    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sdFor(3) * 0.8, Math.round((n - 8) / 3), pts);
-    for(let i = 0; i < 8; i++) pts.push(clampPt({ x: rnd(3, LX - 3), y: rnd(3, 97) }));
+    const cs = spreadCenters(3), strays = Math.max(1, Math.min(8, Math.round(n * 0.06)));
+    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sdFor(3) * 0.8, Math.max(1, Math.round((n - strays) / 3)), pts);
+    for(let i = 0; i < strays; i++) pts.push(clampPt({ x: rnd(3, LX - 3), y: rnd(3, 97) }));
   }
   S.points = pts;
   hardReset();
@@ -151,6 +208,7 @@ function generate(){
 
 /* ======================= K-MEANS CORE ======================= */
 function pickInitial(points, k, method){
+  k = Math.max(KMIN, Math.min(k, points.length));   // K ≤ N — never spin looking for more points than exist
   if(method === "farthest"){
     const chosen = [points[Math.floor(Math.random() * points.length)]];
     while(chosen.length < k){
@@ -210,16 +268,23 @@ function silentRun(src, k, method, maxIt = 100){
 
 /* ======================= STEP MACHINE ======================= */
 function doInit(){
-  S.k = +$("inK").value;
-  if(S.points.length < S.k){ say(`⚠️ Need at least ${S.k} data points`); return; }
+  S.k = readInt("inK", S.k);
+  if(!kFeasible()){                                  // the one hard rule of k-means: 1 ≤ K ≤ N
+    say(`⚠️ K = ${S.k} needs at least ${S.k} data points — there are ${S.points.length}. K-means requires K ≤ N.`);
+    sync(); return;
+  }
+  const dp = distinctPoints();
+  const dupWarn = dp < S.k
+    ? ` · ⚠️ only ${dp} distinct positions for K = ${S.k}, so some clusters will come out empty (identical points can never be split apart)`
+    : "";
   S.initMethod = $("inInit").value;
   S.points.forEach(p => p.c = -1);
   S.centroids = pickInitial(S.points, S.k, S.initMethod)
                   .map(c => ({ x: c.x, y: c.y, ax: c.x, ay: c.y, trail: [{ x: c.x, y: c.y }] }));
   S.phase = "assign"; S.iter = 0; S.sse = null; S.maxMove = null; S.history = [];
-  say(S.initMethod === "farthest"
+  say((S.initMethod === "farthest"
       ? "Initial centroids chosen farthest-first — the starting points are as far apart as possible"
-      : "Initial centroids sampled at random — press again a few times and the outcome changes");
+      : "Initial centroids sampled at random — press again a few times and the outcome changes") + dupWarn);
   sync();
 }
 
@@ -275,8 +340,11 @@ async function runToCompletion(){
 }
 
 function bestOfN(n = 10){
-  S.k = +$("inK").value;
-  if(S.points.length < S.k){ say(`⚠️ Need at least ${S.k} data points`); return; }
+  S.k = readInt("inK", S.k);
+  if(!kFeasible()){
+    say(`⚠️ K = ${S.k} needs at least ${S.k} data points — there are ${S.points.length}. K-means requires K ≤ N.`);
+    sync(); return;
+  }
   let best = null, worst = -Infinity;
   for(let i = 0; i < n; i++){
     const r = silentRun(S.points, S.k, $("inInit").value);
@@ -327,26 +395,29 @@ function drawGrid(){
   ctx.save();
   ctx.beginPath(); ctx.rect(ox, oy, plotW, plotH); ctx.clip();
 
-  const o = px({ x: 0, y: 0 }), f = px({ x: LX, y: LY });
-  ctx.fillStyle = "#0a1123"; ctx.fillRect(o.x, f.y, f.x - o.x, o.y - f.y);
+  ctx.fillStyle = "#0a1123"; ctx.fillRect(ox, oy, plotW, plotH);
 
   ctx.strokeStyle = "rgba(255,255,255,.045)"; ctx.lineWidth = 1;
   const step = V.z >= 3 ? 2 : V.z >= 1.6 ? 5 : 10;
-  for(let gx = step; gx < LX; gx += step){
+  
+  const la = toLogical(ox, oy + plotH);
+  const lb = toLogical(ox + plotW, oy);
+  
+  const startX = Math.floor(la.x / step) * step;
+  const endX = Math.ceil(lb.x / step) * step;
+  for(let gx = startX; gx <= endX; gx += step){
     const x = px({ x: gx, y: 0 }).x;
-    if(x < ox - 1 || x > ox + plotW + 1) continue;
-    ctx.beginPath(); ctx.moveTo(x, f.y); ctx.lineTo(x, o.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, oy + plotH); ctx.lineTo(x, oy); ctx.stroke();
   }
-  for(let gy = step; gy < LY; gy += step){
+  
+  const startY = Math.floor(la.y / step) * step;
+  const endY = Math.ceil(lb.y / step) * step;
+  for(let gy = startY; gy <= endY; gy += step){
     const y = px({ x: 0, y: gy }).y;
-    if(y < oy - 1 || y > oy + plotH + 1) continue;
-    ctx.beginPath(); ctx.moveTo(o.x, y); ctx.lineTo(f.x, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + plotW, y); ctx.stroke();
   }
-  ctx.strokeStyle = "rgba(96,165,250,.28)"; ctx.lineWidth = 1.2;
-  ctx.strokeRect(o.x, f.y, f.x - o.x, o.y - f.y);
   ctx.restore();
 
-  const la = toLogical(ox, oy + plotH), lb = toLogical(ox + plotW, oy);
   ctx.fillStyle = "#54628a"; ctx.font = "10px 'JetBrains Mono', monospace";
   ctx.fillText(la.x.toFixed(0), ox - 3, oy + plotH + 15);
   ctx.fillText("x →", ox + plotW / 2 - 8, oy + plotH + 15);
@@ -370,7 +441,7 @@ function render(){
     for(const p of S.points){
       if(p.c < 0 || !S.centroids[p.c]) continue;
       const a = px(p), b = px({ x: S.centroids[p.c].ax, y: S.centroids[p.c].ay });
-      ctx.strokeStyle = COLORS[p.c % COLORS.length] + "33";
+      ctx.strokeStyle = colorFor(p.c) + "33";
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
     }
   }
@@ -383,7 +454,7 @@ function render(){
   for(const p of S.points){
     const a = px(p);
     if(a.x < ox - R || a.x > ox + plotW + R || a.y < oy - R || a.y > oy + plotH + R) continue;
-    const col = p.c < 0 ? GREY : COLORS[p.c % COLORS.length];
+    const col = colorFor(p.c);
     let list = byCol.get(col);
     if(!list){ list = []; byCol.set(col, list); }
     list.push(a);
@@ -399,7 +470,7 @@ function render(){
     ctx.setLineDash([4, 4]); ctx.lineWidth = 1.4;
     S.centroids.forEach((c, i) => {
       if(c.trail.length < 2) return;
-      ctx.strokeStyle = COLORS[i % COLORS.length] + "88";
+      ctx.strokeStyle = colorFor(i) + "88";
       ctx.beginPath();
       c.trail.forEach((t, j) => { const q = px(t); j ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); });
       ctx.stroke();
@@ -408,7 +479,7 @@ function render(){
   }
 
   S.centroids.forEach((c, i) => {
-    const a = px({ x: c.ax, y: c.ay }), col = COLORS[i % COLORS.length];
+    const a = px({ x: c.ax, y: c.ay }), col = colorFor(i);
     if(i === S.sel || i === hoverC){                       // the selected / hovered centroid
       ctx.beginPath(); ctx.arc(a.x, a.y, 20, 0, Math.PI * 2);
       ctx.strokeStyle = i === S.sel ? "#fbbf24" : "rgba(255,255,255,.5)";
@@ -496,7 +567,7 @@ const PHASE = {
             math:"c_i = (1/|C_i|) · Σ_{x∈C_i} x" },
   done:   { name:"Converged ✓", dot:"bg-emerald-400", line:5,
             title:"Step 4 — Convergence",
-            desc:"The centroids stopped moving, so the clustering is stable and the algorithm ends. The SSE you get is a local optimum and may not be the best one — compare it against Best of 10 runs.",
+            desc:"The centroids stopped moving, so the clustering is stable and the algorithm ends. The SSE you get is a local optimum and may not be the best one — compare it against Best Centroids.",
             math:"cost(C) = Σ_i Σ_{x∈C_i} dist(x, c_i)" }
 };
 
@@ -540,26 +611,51 @@ function sync(){
   $("stSSE").textContent  = S.sse == null ? "—" : S.sse.toFixed(2);
   $("stMove").textContent = S.maxMove == null ? "—" : S.maxMove.toFixed(4);
 
+  syncBounds();
+
   const isBusy = busy();
-  $("bInit").disabled = isBusy || S.points.length < S.k;
+  $("bInit").disabled = isBusy || !kFeasible();
   $("bStep").disabled = isBusy || S.points.length === 0 || S.phase === "done";
-  $("bBest").disabled = isBusy || S.points.length < S.k;
+  $("bBest").disabled = isBusy || !kFeasible();
   $("bGen").disabled  = isBusy;
   $("bClr").disabled  = isBusy;
   $("bRun").textContent = S.running ? "⏸ Stop" : "▶️ Run to Completion";
   $("bRun").disabled = S.points.length === 0 || (S.phase === "done" && !S.running);
 
-  $("legend").innerHTML = S.centroids.length
-    ? S.centroids.map((c, i) => {
-        const n = S.points.filter(p => p.c === i).length;
-        return `<span class="flex items-center gap-1.5"><span style="background:${COLORS[i % COLORS.length]}" class="w-2.5 h-2.5 rounded-full"></span>${NAMES[i]} <span class="mono opacity-60">${n}</span></span>`;
-      }).join("")
-    : `<span class="opacity-70">no centroids yet</span>`;
+  if(S.centroids.length){
+    const counts = new Array(S.centroids.length).fill(0);
+    for(const p of S.points) if(p.c >= 0 && p.c < counts.length) counts[p.c]++;
+    const shown = Math.min(S.centroids.length, LEGENDMAX);        // K is unbounded — keep the legend readable
+    let html = "";
+    for(let i = 0; i < shown; i++)
+      html += `<span class="flex items-center gap-1.5"><span style="background:${colorFor(i)}" class="w-2.5 h-2.5 rounded-full"></span>${nameFor(i)} <span class="mono opacity-60">${counts[i]}</span></span>`;
+    if(S.centroids.length > shown)
+      html += `<span class="opacity-70">+${S.centroids.length - shown} more clusters</span>`;
+    $("legend").innerHTML = html;
+  } else {
+    $("legend").innerHTML = `<span class="opacity-70">no centroids yet</span>`;
+  }
 
   drawChart();
 }
 
-const say = t => { $("msg").textContent = t; };
+/* K and n have no fixed ceiling — the UI just reports whether the current pair is runnable (K ≤ N) */
+function syncBounds(){
+  const N = S.points.length, k = S.k;
+  $("lblK").textContent = k;
+  $("lblN").textContent = readInt("inN", 150);
+  const bad = N > 0 && k > N;
+  $("inK").classList.toggle("bad", bad);
+  $("kNote").className = "note" + (bad ? " warn" : "");
+  $("kNote").textContent = N === 0
+    ? "no data yet · K ≤ N once points exist"
+    : bad
+      ? `K > N — needs ${k - N} more point${k - N === 1 ? "" : "s"} (N = ${N})`
+      : `K ≤ N ✓ (N = ${N}${k === N ? ", K = N → SSE 0" : ""})`;
+  $("nNote").textContent = "no upper limit";
+}
+
+const say = t => { $("msg").textContent = t; };   // the status line under the buttons — every warning the user must read lands here
 
 function hardReset(){
   S.running = false; S.centroids = []; S.phase = "idle"; S.sel = -1;
@@ -578,6 +674,7 @@ const TOOLS = {
   centroid: { cursor:"pointer",   hint:"🎯 Centroid — drag to move · click empty space to add one (up to K) · right-click or Delete to remove" }
 };
 const LINEMAX = 2000;        // past this many points the connector lines switch off so drawing stays smooth (the point count itself is unlimited)
+const LEGENDMAX = 24;        // K itself is unbounded; the legend just stops listing past this and shows "+n more"
 S.tool = "brush"; S.sel = -1;
 
 const busy   = () => S.running || S.animating;
@@ -798,7 +895,7 @@ function onMove(e){
     const c = S.centroids[dragI];
     if(!c) return;
     const w = toLogical(m.x, m.y);
-    const nx = Math.min(LX, Math.max(0, w.x + dragOff.x)), ny = Math.min(LY, Math.max(0, w.y + dragOff.y));
+    const nx = w.x + dragOff.x, ny = w.y + dragOff.y;
     dragMoved += Math.hypot(nx - c.x, ny - c.y);
     c.x = c.ax = nx; c.y = c.ay = ny;
     return;
@@ -822,8 +919,8 @@ function onMove(e){
 
 function onUp(){
   if(mode === "drag" && S.centroids[dragI]){
-    if(dragMoved > 0.05) afterCentroidEdit("Moved " + NAMES[dragI] + " by hand → reassigned from where you dropped it (iteration count restarts)");
-    else { say("Selected " + NAMES[dragI] + " — drag to move it, or press Delete to remove it"); sync(); }
+    if(dragMoved > 0.05) afterCentroidEdit("Moved " + nameFor(dragI) + " by hand → reassigned from where you dropped it (iteration count restarts)");
+    else { say("Selected " + nameFor(dragI) + " — drag to move it, or press Delete to remove it"); sync(); }
   }
   endStroke();
   mode = null; dragI = -1; lastPaint = null; panFrom = null;
@@ -867,6 +964,7 @@ function onKey(e){
   else if(e.key === "+" || e.key === "=") zoomAt(cw / 2, ch / 2, 1.25);
   else if(e.key === "-" || e.key === "_") zoomAt(cw / 2, ch / 2, 1 / 1.25);
   else if(e.key === "0") resetView();
+  else if(k === "f") focusView();
 }
 
 canvas.addEventListener("pointerdown", onDown);
@@ -887,15 +985,32 @@ $("inStab").addEventListener("input",  e => { $("lblStab").textContent  = e.targ
 $("bZoomIn").onclick  = () => zoomAt(cw / 2, ch / 2, 1.25);
 $("bZoomOut").onclick = () => zoomAt(cw / 2, ch / 2, 1 / 1.25);
 $("bZoomRst").onclick = () => { resetView(); say("View reset to 100%"); };
+$("bFocus").onclick = () => { focusView(); say("Focused on data points"); };
 
 /* ======================= CONTROL EVENTS ======================= */
 $("inK").addEventListener("input", e => {
-  S.k = +e.target.value; $("lblK").textContent = S.k;
+  const raw = Math.round(+e.target.value);
+  if(!Number.isFinite(raw) || raw < KMIN) return;            // mid-typing (blank / 0) — wait for a real value
+  S.k = raw; $("lblK").textContent = S.k;
   if(!S.centroids.length) hardReset();                       // nothing started yet → plain reset
   else if(S.centroids.length > S.k) trimCentroids(S.k);      // K went down → trim the extras
-  else { say("K = " + S.k + " · " + S.centroids.length + " centroids placed — add more with the 🎯 tool, or press Initialize to resample the whole set"); sync(); }
+  else {
+    const over = S.points.length && S.k > S.points.length
+      ? ` · ⚠️ K > N (${S.points.length} points) — k-means needs K ≤ N, add points first`
+      : "";
+    say("K = " + S.k + " · " + S.centroids.length + " centroids placed — add more with the 🎯 tool, or press Initialize to resample the whole set" + over);
+    sync();
+  }
 });
-$("inN").addEventListener("input", e => { $("lblN").textContent = e.target.value; });
+$("inK").addEventListener("change", e => {                   // normalise whatever was left in the box
+  const v = Math.max(KMIN, Math.round(+e.target.value) || KMIN);
+  e.target.value = v; S.k = v; sync();
+});
+$("inN").addEventListener("input", () => { sync(); });
+$("inN").addEventListener("change", e => {
+  e.target.value = Math.max(1, Math.round(+e.target.value) || 1);
+  sync();
+});
 $("inSpd").addEventListener("input", e => { S.speed = +e.target.value; $("lblSpd").textContent = SPDLBL[S.speed]; });
 $("inData").addEventListener("change", generate);
 
@@ -913,7 +1028,8 @@ new ResizeObserver(() => { resize(); drawChart(); }).observe(canvas);
 /* ======================= TEST HOOK ======================= */
 /* Expose internals for the unit tests in tests/ — no effect on normal use */
 window.__app = {
-  S, V, TOOLS, COLORS, NAMES, LINEMAX, EPS, SPEEDS,
+  S, V, TOOLS, COLORS, NAMES, LINEMAX, LEGENDMAX, EPS, SPEEDS, KMIN,
+  colorFor, nameFor, hslHex, readInt, kCap, distinctPoints, kFeasible, syncBounds,
   get LX(){ return LX; }, get LY(){ return LY; },
   get unit(){ return unit; }, get ox(){ return ox; }, get oy(){ return oy; },
   get plotW(){ return plotW; }, get plotH(){ return plotH; },

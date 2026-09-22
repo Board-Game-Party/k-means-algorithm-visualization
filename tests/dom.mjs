@@ -90,8 +90,8 @@ function el(id, props){ const e = new El(id, props); els.set(id, e); return e; }
 /* ---- every element the index.html script looks up ---- */
 el("canvas", { tagName: "CANVAS", rect: { left: 0, top: 0, width: W, height: H } });
 el("chart",  { tagName: "CANVAS", rect: { left: 0, top: 0, width: CHART_W, height: CHART_H } });
-el("inK",     { tagName: "INPUT", value: 3 });
-el("inN",     { tagName: "INPUT", value: 150 });
+el("inK",     { tagName: "INPUT", value: 3 });    // number input: K has no fixed ceiling, only K ≤ N
+el("inN",     { tagName: "INPUT", value: 150 });  // number input: n has no fixed ceiling
 el("inSpd",   { tagName: "INPUT", value: 1 });
 el("inBrush", { tagName: "INPUT", value: 28 });
 el("inDens",  { tagName: "INPUT", value: 3 });
@@ -111,7 +111,7 @@ el("inInit", { tagName: "SELECT", value: "random", options: [
 ]});
 for(const id of ["lblK","lblN","lblSpd","lblBrush","lblDens","lblZoom","phaseName","phaseDot","infoTitle",
                  "infoDesc","infoMath","stIter","stN","stSSE","stMove","stCent","legend","msg","histTxt",
-                 "toolHint","brushOpts","densOpt","stabOpt","lblStab","lnHint"]) el(id, {});
+                 "toolHint","brushOpts","densOpt","stabOpt","lblStab","lnHint","kNote","nNote"]) el(id, {});
 for(const id of ["bGen","bClr","bInit","bStep","bRun","bBest","bReset","bZoomIn","bZoomOut","bZoomRst"])
   el(id, { tagName: "BUTTON" });
 

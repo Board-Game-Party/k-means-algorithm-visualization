@@ -20,6 +20,34 @@ export default async function run(page){
   ok("the centroid counter shows m / k", /^\d+ \/ \d+$/.test((await txt("#stCent")).trim()), await txt("#stCent"));
   ok("the view starts at 100%", (await txt("#lblZoom")).trim() === "100%");
 
+  /* 1b. K and n have no fixed ceiling — the only rule is 1 ≤ K ≤ N */
+  const setNum = async (sel, v) => page.locator(sel).evaluate((el, val) => {
+    el.value = String(val);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }, v);
+  ok("the K box is a number field with no maximum",
+     (await page.locator("#inK").getAttribute("type")) === "number" && (await page.locator("#inK").getAttribute("max")) === null);
+  ok("the n box is a number field with no maximum",
+     (await page.locator("#inN").getAttribute("type")) === "number" && (await page.locator("#inN").getAttribute("max")) === null);
+  await setNum("#inK", 12);
+  ok("K accepts 12, well past the old 8-cluster ceiling", (await txt("#stCent")).trim() === "0 / 12", await txt("#stCent"));
+  await page.locator("#bInit").click();
+  ok("12 centroids really get placed", (await txt("#stCent")).trim() === "12 / 12", await txt("#stCent"));
+  ok("the legend names all 12 clusters", (await page.locator("#legend span").count()) >= 12);
+  await setNum("#inN", 9);
+  await page.locator("#bGen").click();
+  ok("n = 9 generates a handful of points, not a fixed minimum", (await num("#stN")) <= 12, await txt("#stN"));
+  ok("K = 12 > N = 9 is flagged", (await txt("#kNote")).includes("K > N"), await txt("#kNote"));
+  ok("Initialize is disabled while K > N", await page.locator("#bInit").isDisabled());
+  await page.locator("#bInit").click({ force: true }).catch(() => {});
+  await setNum("#inK", await num("#stN"));               // exactly K = N (the preset rounds, so read the real count)
+  ok("K = N is allowed and noted", (await txt("#kNote")).includes("K = N"), await txt("#kNote"));
+  ok("Initialize is enabled again at K = N", !(await page.locator("#bInit").isDisabled()));
+  await setNum("#inN", 150);
+  await page.locator("#bGen").click();
+  await setNum("#inK", 3);
+
   /* 2a0. pen — one press, one point (feedback 2) */
   await page.locator("#bClr").click();
   await page.locator("#inDens").evaluate(el => { el.value = "8"; el.dispatchEvent(new Event("input", { bubbles: true })); });
@@ -155,18 +183,19 @@ export default async function run(page){
   ok("a long spray hold keeps accumulating points", bulk > 200, { bulk });
 
   await page.keyboard.press("b");                        // paint past the old cap with the brush
+  const dy = Math.round(box.height * 0.15);              // offsets must scale with the canvas — it is short in a headless window
   for(let row = -2; row <= 2; row++){
-    await page.mouse.move(...at(-Math.round(box.width * 0.4), row * 25));
+    await page.mouse.move(...at(-Math.round(box.width * 0.4), row * dy));
     await page.mouse.down();
-    await page.mouse.move(...at(Math.round(box.width * 0.4), row * 25));
+    await page.mouse.move(...at(Math.round(box.width * 0.4), row * dy));
     await page.mouse.up();
   }
   const many = await num("#stN");
   ok("drawing goes past the old 4000-point cap", many > 2000, { bulk, many });
 
-  await page.mouse.move(...at(0, 80));
+  await page.mouse.move(...at(0, dy * 2));
   await page.mouse.down();
-  await page.mouse.move(...at(120, 80));
+  await page.mouse.move(...at(Math.round(box.width * 0.2), dy * 2));
   await page.mouse.up();
   const evenMore = await num("#stN");
   ok("drawing continues at high counts — no cap", evenMore > many, { many, evenMore });

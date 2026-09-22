@@ -78,8 +78,17 @@ drawing stays smooth however much you paint.
 
 ### Buttons and controls
 
-- **K** — number of clusters (2–8). With no centroids yet it resets; with centroids placed it keeps them and only trims those above K.
-- **n** — how many points to generate (20–400).
+- **K** — number of clusters. **No fixed ceiling**: type any integer ≥ 1. With no centroids yet it resets; with
+  centroids placed it keeps them and only trims those above K.
+  The one rule k-means imposes is **1 ≤ K ≤ N** — you cannot ask for more clusters than you have data points —
+  so the note under the box reports the state live (`K ≤ N ✓`, `K > N — needs 4 more points`, `K = N → SSE 0`),
+  the field turns red when it is impossible, and *Initialize* / *Best of 10* refuse to run and tell you why.
+  Nothing is silently clamped: what you typed stays on screen.
+  K = 1 gives the global mean; K = N puts every point on its own centroid and drives SSE to 0 — which is exactly why a
+  low SSE on its own never proves a good K. Past the eight named clusters, colours keep going on a golden-angle hue
+  sweep and names continue `Cluster I`, `Cluster J` … `Cluster AA`; the legend lists 24 and then says "+n more".
+- **n** — how many points *New random data* generates. **No fixed ceiling**: any integer ≥ 1 (the presets round, so the
+  final count can differ by a point or two). Drawing on the canvas adds more on top, also without a limit.
 - **Speed** — Slow / Normal / Fast / Instant animation.
 - **Dataset preset** — each one demonstrates a documented K-means limitation (table below).
 - **Initial centroid method** — `Random` or `Farthest-first`.
@@ -150,6 +159,7 @@ The suite **pulls the real `<script>` out of `index.html`** and runs it against 
 | `tests/view.test.mjs` | 36 | coordinate round-trips, zoom limits, clampPan, data staying put under pan/zoom |
 | `tests/algorithm.test.mjs` | 50 | assign/update/init/best-of-N/presets/animation, and SSE falling every round |
 | `tests/tools.test.mjs` | 61 | brush, eraser, placing–dragging–deleting centroids, the K ceiling, the busy lock |
+| `tests/kn.test.mjs` | 18 | K and n have no fixed maximum, the 1 ≤ K ≤ N rule, K = 1 / K = N boundaries, duplicate-point warning, colours+names for any K |
 | `tests/stroke.test.mjs` | 53 | pen one-press-one-point, spray cadence, stroke continuity, dab spacing, stabilizer |
 | `tests/render.test.mjs` | 41 | brush ring, highlight rings, grid vs zoom, SSE chart, drawing huge point counts |
 | **Total** | **241** | coverage: line **100%** · branch **97.5%** · funcs **97.1%** |
