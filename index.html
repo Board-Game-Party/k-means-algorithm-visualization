@@ -50,7 +50,7 @@
   .pc.on{background:rgba(96,165,250,.16);color:#bfdbfe;box-shadow:inset 2px 0 0 var(--accent)}
   .pc.off{color:#64748b}
   .tag{font-size:.68rem;padding:.12rem .45rem;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
-  .tool{border-radius:8px;padding:.3rem .5rem;font-size:1rem;line-height:1.1;border:1px solid transparent;
+  .tool{border-radius:8px;padding:.4rem .6rem;font-size:1.5rem;line-height:1.1;border:1px solid transparent;
         background:transparent;transition:.15s}
   .tool:hover:not(:disabled){background:#243257}
   .tool.on{background:#2563eb;border-color:#3b82f6}
@@ -81,23 +81,23 @@
 
     <!-- ===== LEFT : Canvas + Controls ===== -->
     <section class="leftcol card p-3">
-      <div class="flex flex-wrap items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
         <div class="flex items-baseline gap-2">
-          <span id="phaseDot" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
-          <span id="phaseName" class="font-semibold text-sm">Waiting for data</span>
+          <h2 class="text-xs font-bold text-[var(--muted)] uppercase tracking-widest">Tools</h2>
+          <span id="phaseDot" class="hidden"></span>
+          <span id="phaseName" class="hidden"></span>
         </div>
-        <div id="legend" class="flex flex-wrap gap-2 text-xs text-[var(--muted)]"></div>
       </div>
 
       <!-- Canvas toolbar -->
       <div class="toolbar">
         <div class="flex gap-0.5 card2 p-1">
           <button class="tool" data-tool="pen"      title="Pen — one click, one point (P)">✒️</button>
-          <button class="tool" data-tool="spray"    title="Spray — hold to keep spraying (S)">💨</button>
           <button class="tool" data-tool="brush"    title="Brush — continuous stroke (B)">🖌️</button>
+          <button class="tool" data-tool="spray"    title="Spray — hold to keep spraying (S)">💨</button>
+          <button class="tool" data-tool="centroid" title="Centroid tool (C)">🎯</button>
           <button class="tool" data-tool="eraser"   title="Eraser (E)">🧽</button>
           <button class="tool" data-tool="hand"     title="Pan the view (H, middle mouse, or Space+drag)">✋</button>
-          <button class="tool" data-tool="centroid" title="Centroid tool (C)">🎯</button>
         </div>
 
         <div id="brushOpts" class="flex items-center gap-2 text-[11px]">
@@ -125,6 +125,9 @@
       <div id="toolHint" class="text-[10px] text-[var(--muted)] -mt-1 leading-tight"></div>
 
       <div class="canvasWrap"><canvas id="canvas"></canvas></div>
+
+      <!-- Legend -->
+      <div id="legend" class="flex flex-wrap items-center justify-center gap-4 text-xs text-[var(--muted)] card2 p-2"></div>
 
       <!-- Stats -->
       <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
@@ -180,10 +183,9 @@
         <button id="bInit" class="btn btn-primary">1️⃣ Initialize Centroids</button>
         <button id="bStep" class="btn btn-primary">2️⃣ Next Step</button>
         <button id="bRun"  class="btn btn-go">▶️ Run to Completion</button>
-        <button id="bBest" class="btn">🏆 Best of 10 runs</button>
+        <button id="bBest" class="btn">🏆 Best Centroids</button>
         <button id="bReset" class="btn btn-danger">↺ Reset</button>
       </div>
-      <div id="msg" class="text-[11px] text-[var(--muted)] min-h-[1.1rem] leading-tight"></div>
     </section>
 
     <!-- ===== RIGHT : Information Panel ===== -->
@@ -238,7 +240,7 @@
         </summary>
         <ul class="text-[12px] text-[var(--muted)] mt-2 space-y-1.5 list-disc pl-4 leading-relaxed">
           <li>Initial centroids are usually random, so <b>every run lands somewhere different</b> (press Reset → Initialize a few times).</li>
-          <li>Remedy 1: run it many times and keep the lowest-error result → the <b>Best of 10 runs</b> button.</li>
+          <li>Remedy 1: run it many times and keep the lowest-error result → the <b>Best Centroids</b> button.</li>
           <li>Remedy 2: start from points that are <b>as far apart as possible</b> → the <b>Farthest-first</b> mode.</li>
         </ul>
       </details>
@@ -764,7 +766,7 @@ const PHASE = {
             math:"c_i = (1/|C_i|) · Σ_{x∈C_i} x" },
   done:   { name:"Converged ✓", dot:"bg-emerald-400", line:5,
             title:"Step 4 — Convergence",
-            desc:"The centroids stopped moving, so the clustering is stable and the algorithm ends. The SSE you get is a local optimum and may not be the best one — compare it against Best of 10 runs.",
+            desc:"The centroids stopped moving, so the clustering is stable and the algorithm ends. The SSE you get is a local optimum and may not be the best one — compare it against Best Centroids.",
             math:"cost(C) = Σ_i Σ_{x∈C_i} dist(x, c_i)" }
 };
 
@@ -827,7 +829,7 @@ function sync(){
   drawChart();
 }
 
-const say = t => { $("msg").textContent = t; };
+const say = t => { console.log(t); };
 
 function hardReset(){
   S.running = false; S.centroids = []; S.phase = "idle"; S.sel = -1;
