@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build / test output
+dist/
+build/
+coverage/
+*.log
+
+# Secrets
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
+# --- ไฟล์ส่วนตัว / ของเครื่องมือ (ลบ # หน้าบรรทัดถ้าไม่อยาก commit) ---
+# log.md
+# .claude/agents/worklog.md
+# .agentsroom/

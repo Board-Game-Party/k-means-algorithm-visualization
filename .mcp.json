@@ -1,0 +1,49 @@
+{
+  "mcpServers": {
+    "AgentsRoom-Chrome": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\User\\AppData\\Local\\Programs\\AgentsRoom\\resources\\browser-mcp-server.cjs"
+      ],
+      "env": {
+        "AR_BROWSER_BRIDGE_FILE": "C:\\Users\\User\\.agentsroom\\browser-bridge.json",
+        "AR_BROWSER_PROJECT_ID": "proj-1790045423890-pgn54t",
+        "AR_BROWSER_KIND": "chrome"
+      }
+    },
+    "AgentsRoom-MCP": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\User\\AppData\\Local\\Programs\\AgentsRoom\\resources\\app-mcp-server.cjs"
+      ],
+      "env": {
+        "AR_PROJECT_ID": "proj-1790045423890-pgn54t",
+        "AR_PROJECT_PATH": "C:\\Users\\User\\Desktop\\Data_k-mean",
+        "AR_API_BASE_URL": "https://agentsroom.dev",
+        "AR_SETTINGS_FILE": "C:\\Users\\User\\.agentsroom\\settings.json",
+        "AR_BRIDGE_FILE": "C:\\Users\\User\\.agentsroom\\browser-bridge.json"
+      }
+    },
+    "AgentsRoom-Test-Runner": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\User\\AppData\\Local\\Programs\\AgentsRoom\\resources\\test-runner-mcp-server.cjs"
+      ],
+      "env": {
+        "AR_BROWSER_BRIDGE_FILE": "C:\\Users\\User\\.agentsroom\\browser-bridge.json",
+        "AR_BROWSER_PROJECT_ID": "proj-1790045423890-pgn54t",
+        "AR_PROJECT_PATH": "C:\\Users\\User\\Desktop\\Data_k-mean"
+      }
+    },
+    "AgentsRoom-QA-Tester": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\User\\AppData\\Local\\Programs\\AgentsRoom\\resources\\qa-tester-mcp-server.cjs"
+      ],
+      "env": {
+        "AR_BROWSER_BRIDGE_FILE": "C:\\Users\\User\\.agentsroom\\browser-bridge.json",
+        "AR_BROWSER_PROJECT_ID": "proj-1790045423890-pgn54t"
+      }
+    }
+  }
+}

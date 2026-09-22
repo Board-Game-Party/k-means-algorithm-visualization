@@ -1,0 +1,13 @@
+{
+  "name": "kmeans-interactive-visualizer",
+  "version": "2.0.0",
+  "private": true,
+  "description": "K-means interactive visualizer — single-file SPA (index.html) plus unit tests that run the real code extracted from it",
+  "type": "module",
+  "scripts": {
+    "pretest": "node tests/extract.mjs",
+    "test": "node --experimental-test-coverage --test-coverage-lines=90 --test-coverage-branches=85 --test-coverage-functions=90 --test-coverage-exclude=tests/dom.mjs --test-coverage-exclude=tests/helpers.mjs --test-coverage-exclude=tests/extract.mjs --test tests/*.test.mjs",
+    "test:quick": "node tests/extract.mjs && node --test tests/*.test.mjs",
+    "verify:browser": "node \"%USERPROFILE%/.claude/skills/browser-automation/browser.mjs\" index.html --script tests/browser.smoke.mjs"
+  }
+}

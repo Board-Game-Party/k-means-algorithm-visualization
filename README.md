@@ -1,85 +1,192 @@
 # K-Means Clustering — Interactive Visualizer
 
-เว็บแอปแบบ Single Page สำหรับเรียนรู้อัลกอริทึม K-means (Lloyd's algorithm) แบบทีละขั้น
-สร้างจาก playbook `paybook/Clustering-k-mean.md`
+A single-page web app for learning Lloyd's algorithm one step at a time.
+Built from the `paybook/Clustering-k-mean.md` playbook.
 
-## วิธีใช้งาน
+## Running it
 
-ดับเบิลคลิก `index.html` เปิดด้วยเบราว์เซอร์ใดก็ได้ — ไม่ต้อง build ไม่ต้องติดตั้งอะไร
+Double-click `index.html` and open it in any browser — no build, no install, no server.
 
-หน้าจอออกแบบให้**พอดี 1 หน้าจอ ไม่ต้องเลื่อนเมาส์**: บนจอกว้าง ≥1280px ทั้งหน้าล็อกความสูงเท่า viewport
-กราฟจะยืด/หดตามพื้นที่ที่เหลือโดยอัตโนมัติ (ยังคงเป็นสี่เหลี่ยมจัตุรัสเสมอ) ส่วนแผงทฤษฎีด้านขวาสกรอลล์ในตัวเอง
-บนจอเล็กกว่านั้นจะกลับไปเป็นหน้ายาวเลื่อนตามปกติ
+The layout is designed to fit **one screen with no scrolling**: on displays ≥1280px wide the page locks to the
+viewport height, the canvas stretches into whatever space is left (always at an equal scale on both axes), and the
+theory panel on the right scrolls inside itself. Below that width it falls back to a normal scrolling page.
 
-### ลำดับที่แนะนำสำหรับการเรียนรู้
+### A suggested path through it
 
-| ขั้น | ทำอะไร | สังเกตอะไร |
+| Step | Do this | Watch for |
 |---|---|---|
-| 1 | กด **🎲 สุ่มข้อมูลใหม่** หรือคลิก/ลากบนกราฟเพื่อวางจุดเอง | จุดสีเทา = ยังไม่ถูกจัดกลุ่ม |
-| 2 | ตั้งค่า **K** แล้วกด **Initialize Centroids** | centroid วงกลมมีกากบาทปรากฏขึ้น |
-| 3 | กด **Next Step** สลับไปมา | รอบคู่ = *Assign* (จุดเปลี่ยนสีเข้ากลุ่มที่ใกล้ที่สุด) · รอบคี่ = *Update* (centroid เคลื่อนที่) |
-| 4 | กด **Run to Completion** | รันจนลู่เข้าอัตโนมัติ กดซ้ำเพื่อหยุดกลางคัน |
-| 5 | ดูกราฟ **ประวัติการลู่เข้า (SSE)** | ค่า SSE ต้องลดลงเรื่อย ๆ จนนิ่ง |
+| 1 | Press **🎲 New random data** · tap points with the **✒️ pen** · draw a line with the **🖌️ brush** · build a blob with the **💨 spray** | grey points are not yet assigned |
+| 2 | Set **K**, then press **Initialize Centroids** | the ringed cross markers are the centroids |
+| 3 | Press **Next Step** repeatedly | even steps = *Assign* (points recolour to their nearest centroid) · odd steps = *Update* (centroids move) |
+| 4 | Press **Run to Completion** | it runs to convergence; press again to stop early |
+| 5 | Watch the **Convergence history (SSE)** chart | SSE must fall and then flatten out |
 
-### ปุ่มและตัวควบคุม
+### 🧰 Canvas tools
 
-- **K** — จำนวนคลัสเตอร์ (2–8) เปลี่ยนค่าแล้วจะรีเซ็ต centroid ให้อัตโนมัติ
-- **n** — จำนวนจุดที่จะสุ่ม (20–400)
-- **ความเร็วอนิเมชัน** — ช้า / ปกติ / เร็ว / ทันที
-- **รูปแบบชุดข้อมูล** — ใช้สาธิตข้อจำกัดของ K-means แต่ละข้อ (ดูตารางด้านล่าง)
-- **วิธีเลือก initial centroids** — `Random` (สุ่ม) หรือ `Farthest-first` (เลือกจุดที่ห่างกันมากที่สุด)
-- **🏆 Best of 10 runs** — รันซ้ำ 10 ครั้งแล้วเลือกผลที่ SSE ต่ำสุด แสดงให้เห็นว่า initialization มีผลต่อคำตอบจริง
-- **↺ Reset** — ล้าง centroid แต่เก็บจุดข้อมูลไว้ (ใช้ทดลองว่าสุ่มใหม่แล้วได้ผลต่างกัน)
+The bar above the canvas holds five drawing/navigation tools. Click a button or press its shortcut — the active
+tool is highlighted in blue.
 
-### ชุดข้อมูลสาธิตข้อจำกัด
+| Tool | Key | What it does |
+|---|:--:|---|
+| ✒️ **Pen** | `P` | Puts down **exactly one point per press**, right at the cursor, ignoring the flow slider. Hold and drag and the points come out **one at a time** along the path. |
+| 💨 **Spray** | `S` | **Hold the button and points keep piling up** at the cursor — the longer you hold, the denser it gets. Move while spraying and the cone follows. Good for building clusters of deliberately different density. |
+| 🖌️ **Brush** | `B` | Drag to paint a **continuous stroke** of points. Tune Size, Flow and Smooth (see below). |
+| 🧽 **Eraser** | `E` | Drag to **delete every point inside the ring**. Uses the same stroke engine as the brush, so a fast drag never leaves gaps. |
+| ✋ **Hand** | `H` | Drag to **pan the view**. |
+| 🎯 **Centroid** | `C` | **Drag** a centroid to move it · **click empty space** to add one · **right-click**, or select and press `Delete`, to remove one. |
 
-| ชุดข้อมูล | สาธิตข้อจำกัดข้อไหน |
+**The brush behaves like a paint tool (modelled on SAI Paint Tool 2)**
+
+| Slider | Meaning |
 |---|---|
-| Globular blobs | เคสที่ K-means ทำงานได้ดี (baseline) |
-| Different sizes | คลัสเตอร์ขนาดต่างกันมาก |
-| Different densities | ความหนาแน่นต่างกัน |
-| Non-globular (วงแหวน) | รูปร่างไม่เป็นทรงกลม — K-means จะตัดวงแหวนเป็นชิ้น ๆ |
-| Outliers | จุดนอกกลุ่มดึง centroid ให้เพี้ยน |
+| **Size** | Brush radius in screen pixels — constant at every zoom level, so zooming in gives finer control. Shared with the spray and the eraser. |
+| **Flow** | How many points land per dab (or per spray tick). The ink is dense in the middle and thins toward the rim. |
+| **Smooth** | A *stabilizer* that damps the brush head so strokes glide instead of jittering. While you drag, a dashed leash shows the lag between your hand and the head. Used by the brush and eraser; the spray does not need it. |
 
-## สถาปัตยกรรม
+Dabs are spaced **by distance travelled, not by pointer events** — one fast flick across the canvas still paints a
+continuous stroke, the density is identical everywhere along it, and leftover distance carries into the next event
+instead of being discarded.
 
-ไฟล์เดียวจบ: `index.html` = HTML + CSS + Vanilla JS (HTML5 Canvas) · Tailwind ผ่าน CDN
+**How the three drawing tools differ**
+
+| | Pen ✒️ | Brush 🖌️ | Spray 💨 |
+|---|---|---|---|
+| One press gives | **1 point** | 1 dab (= Flow points) | 1 puff, then it keeps going |
+| Points are added | per distance dragged (one at a time) | per distance dragged (continuous dabs) | **per unit of time** — it builds even while still |
+| Point placement | exactly on the cursor | scattered in the ring, dense at the centre | scattered in the ring, dense at the centre |
+
+**There is no cap on the number of points.** Drawing never stops silently. Past 2,000 points the app switches off
+the centroid connector lines automatically (the checkbox says so) and shrinks the dot radius as the count grows, so
+drawing stays smooth however much you paint.
+
+**Panning and zooming**
+
+- The mouse wheel zooms **around the point under the cursor** (40%–800%).
+- The `−` / `+` / `⟲ View` buttons sit at the right of the toolbar; the `+` `-` `0` keys do the same.
+- **Middle mouse button** or **hold Space and drag** pans from any tool, with no need to switch to the hand.
+- The numbers along the bottom edge are the real x coordinates of the view edges, so they change as you pan and zoom.
+- Points and centroids all live in the same world coordinates: **no amount of panning or zooming moves the data**.
+
+**Editing centroids by hand**
+
+- The **Centroids** stat shows the live count as `m / k`. You may place up to `K`; beyond that the app warns you and refuses.
+- Want more? Raise the **K** slider (already-placed centroids are kept). Lower it below the current count and the extras are trimmed.
+- Deleting centroids until `m < k` is fine — the algorithm keeps running with what is left. **Initialize** always resamples a full set of `K`.
+- Every manual move, add or delete **reassigns the points from the new position immediately** and restarts the iteration
+  count (the old SSE curve is no longer comparable).
+- While **Run to Completion** is going, editing tools are locked and say so — but you can still pan and zoom freely.
+
+### Buttons and controls
+
+- **K** — number of clusters (2–8). With no centroids yet it resets; with centroids placed it keeps them and only trims those above K.
+- **n** — how many points to generate (20–400).
+- **Speed** — Slow / Normal / Fast / Instant animation.
+- **Dataset preset** — each one demonstrates a documented K-means limitation (table below).
+- **Initial centroid method** — `Random` or `Farthest-first`.
+- **🏆 Best of 10 runs** — runs ten times and keeps the lowest SSE, showing how much initialization really matters.
+- **↺ Reset** — clears the centroids but keeps the data (handy for re-rolling the initialization).
+- **🧹 Clear points** — wipes the data so you can draw a set by hand.
+
+### Presets that demonstrate the limitations
+
+| Dataset | Limitation it shows |
+|---|---|
+| Globular blobs | the case K-means handles well (baseline) |
+| Different sizes | clusters of very unequal size |
+| Different densities | unequal spread |
+| Non-globular (rings) | non-spherical shapes — K-means slices the ring apart |
+| Outliers | stray points drag the centroids off target |
+
+## Architecture
+
+One file: `index.html` = HTML + CSS + vanilla JS (HTML5 Canvas), with Tailwind from a CDN.
 
 ```
-โครงสร้างภายใน <script>
-  CONFIG / STATE        ค่าคงที่และ state กลาง (S) — เปิดเป็น window.S สำหรับ debug
-  GEOMETRY              แปลงพิกัด logical LX×100 ↔ pixel (LX ยืดตามอัตราส่วนจอ, unit เท่ากันสองแกน)
+inside <script>
+  CONFIG / STATE        constants and the central state object (S) — exposed as window.S for debugging
+  GEOMETRY + VIEW       logical LX×100 ↔ pixels through a single view (V = zoom + pan)
+                        px() / toLogical() / clampPan() / zoomAt() — every draw and hit-test shares them
   DATA GENERATION       gaussian blobs, rings, outliers
   K-MEANS CORE          pickInitial / assignAll / meanUpdate / silentRun
   STEP MACHINE          doInit → doAssign ⇄ doUpdate → done
-  ANIMATION             easeInOutCubic เคลื่อน centroid พร้อมเก็บ trail
-  RENDER                วาดกราฟหลัก + กราฟ SSE
-  UI SYNC / EVENTS      ซิงก์ปุ่ม สถิติ legend และไฮไลต์ pseudocode
+  ANIMATION             easeInOutCubic centroid moves, recording a trail
+  RENDER                main canvas (clipped to the view) + brush head + SSE chart
+  TOOLS                 pen / spray / brush / eraser / hand / centroid + the busy lock
+                        penAt() = one point at the cursor · dab() = one brush dab
+                        strokeTo() = stabilizer + dabs at fixed spacing (carrying leftover distance)
+                        sprayLoop() = time-based emission driven by requestAnimationFrame while held
+  CANVAS EVENTS         pointer, wheel, contextmenu, keyboard
+  UI SYNC / EVENTS      buttons, stats, legend, centroid counter and pseudocode highlighting
+  TEST HOOK             window.__app — internals exposed for the unit tests (no effect on normal use)
 ```
 
-พื้นที่วาดกินเต็มกล่องเสมอ โดยตรึงความสูง logical ไว้ที่ 100 หน่วย แล้วให้**ความกว้าง LX ยืดตามอัตราส่วนของพื้นที่**
-(เช่น กล่อง 1106×513 px → LX ≈ 214) จำนวนพิกเซลต่อหนึ่งหน่วยจึงเท่ากันทั้งสองแกน
-ดังนั้น "centroid ที่ใกล้ที่สุด" บนจอตรงกับผลการคำนวณจริงเสมอ และไม่เหลือพื้นที่ดำว่างข้างกราฟ
+The plot always fills its box: the logical height is pinned at 100 units and **the logical width LX stretches with the
+aspect ratio** (a 1106×513px box gives LX ≈ 214). Pixels per unit are therefore identical on both axes, so "nearest
+centroid" on screen always matches the computed answer, and no dead space is left beside the plot.
 
-ขนาดการกระจายของก้อนข้อมูล (`sdFor`) คำนวณจาก LX/LY ด้วย ก้อนจึงดูได้สัดส่วนกับพื้นที่ทุกขนาดจอ
+Blob spread (`sdFor`) is derived from LX/LY as well, so the clusters stay proportionate on any screen size.
 
-## ผลการตรวจสอบ (headless browser)
+**Drawing large point counts** relies on three things working together, which is what makes an uncapped point count
+affordable: batching one path per colour and filling once, culling anything outside the view, and shrinking the dot
+radius automatically as the count grows (4 → 3.2 → 2.6 → 2 px).
 
-ยืนยันด้วยการรันจริงในเบราว์เซอร์ ไม่ใช่การอ่านโค้ด:
+**The view (zoom / pan)** lives in a single object `V = { z, px, py }` threaded through `px()` / `toLogical()`.
+Drawing, hit-testing, brush radius and centroid grabbing all share that one transform — the data itself stays in world
+coordinates and is never rewritten when you zoom or pan. The view state is also mirrored onto `#canvas[data-view]`
+(as `zoom,panX,panY`) so external tests can read it.
 
-- 0 console error, 0 failed request, ไม่มี horizontal overflow
-- SSE **ลดลงแบบไม่เพิ่มขึ้นเลย** ทุก iteration เช่น `129861.7 → 90582.8 → 86355.5 → 54126.8 → 15222.1 → 14612.1` (ลดลง 88.7%)
-- ทุกจุดถูกจัดเข้า centroid ที่ใกล้ที่สุดจริง (ตรวจซ้ำอิสระ)
-- centroid ทุกตัวเท่ากับค่าเฉลี่ยของสมาชิกในกลุ่มจริง (คลาดเคลื่อน < 1e-6)
-- ชุดข้อมูลทั้ง 5 แบบ × K=5 × farthest-first ลู่เข้าได้ทั้งหมด
-- Reset / ล้างจุด / คลิกเพิ่มจุดเอง ทำงานถูกต้อง
+## Testing
 
-## Sub-agents ของโปรเจกต์
+```bash
+npm test            # unit tests + coverage (a shortfall exits non-zero)
+npm run test:quick  # tests only, no coverage — faster while iterating
+```
 
-อยู่ใน `.claude/agents/` ออกแบบให้กินโทเคนต่ำ (ใช้ haiku ยกเว้นตัวที่เขียนโค้ด)
+The suite **pulls the real `<script>` out of `index.html`** and runs it against a DOM/Canvas stub
+(`tests/extract.mjs` + `tests/dom.mjs`), so it exercises the same code the browser loads rather than a copy.
 
-| agent | model | หน้าที่ |
+| File | Tests | Covers |
+|---|---:|---|
+| `tests/view.test.mjs` | 36 | coordinate round-trips, zoom limits, clampPan, data staying put under pan/zoom |
+| `tests/algorithm.test.mjs` | 50 | assign/update/init/best-of-N/presets/animation, and SSE falling every round |
+| `tests/tools.test.mjs` | 61 | brush, eraser, placing–dragging–deleting centroids, the K ceiling, the busy lock |
+| `tests/stroke.test.mjs` | 53 | pen one-press-one-point, spray cadence, stroke continuity, dab spacing, stabilizer |
+| `tests/render.test.mjs` | 41 | brush ring, highlight rings, grid vs zoom, SSE chart, drawing huge point counts |
+| **Total** | **241** | coverage: line **100%** · branch **97.5%** · funcs **97.1%** |
+
+A further 34 checks run in a real headless browser (`tests/browser.smoke.mjs`) using real mouse and keyboard input,
+asserting only through the DOM:
+
+```bash
+node "$USERPROFILE/.claude/skills/browser-automation/browser.mjs" \
+  "file:///$PWD/index.html" --script tests/browser.smoke.mjs
+```
+
+## Verification results (headless browser)
+
+Confirmed by actually running the page, not by reading the code:
+
+- 0 console errors, 0 failed requests, no horizontal overflow
+- SSE **never increases** across iterations, e.g. `129861.7 → 90582.8 → 86355.5 → 54126.8 → 15222.1 → 14612.1` (down 88.7%)
+- every point really is assigned to its nearest centroid (checked independently)
+- every centroid really equals the mean of its members (error < 1e-6)
+- all 5 presets × K=5 × farthest-first converge
+- pen / spray / brush / eraser / zoom / pan / place–drag–delete centroid: 34/34 checks pass
+- one pen press gives one point even with Flow set to 8
+- holding the spray without moving the mouse keeps adding points, and stops the moment you release
+- drawing past 2,000 points still works, and a large dataset still clusters to convergence
+- placing more centroids than K is refused with a warning
+- deleting down to 2 of K=3 still converges, with SSE falling every round
+
+## Project sub-agents
+
+They live in `.claude/agents/` and are built to be token-light (haiku everywhere except the one that writes code).
+
+| Agent | Model | Job |
 |---|---|---|
-| `kmeans-ui` | sonnet | แก้ไข `index.html` — บังคับแก้ด้วย Edit เฉพาะจุด ห้าม rewrite ทั้งไฟล์ |
-| `kmeans-verify` | haiku | รัน headless browser ตรวจ render + ปุ่ม + console error รายงาน ≤10 บรรทัด |
-| `kmeans-theory` | haiku | ตรวจเนื้อหาทฤษฎีให้ตรง playbook 5 จุด (อัลกอริทึม, cost, initialization, limitations, ศัพท์) |
+| `kmeans-ui` | sonnet | edits `index.html` — surgical edits only, never a full rewrite |
+| `kmeans-verify` | haiku | runs `npm test` (coverage gate) then the headless browser; reports in ≤10 lines |
+| `kmeans-theory` | haiku | checks the explanatory copy against the playbook on 5 fronts (algorithm, cost, initialization, limitations, terminology) |
+| `worklog` | haiku | appends what was done to `log.md` as a table row, with real numbers |
+
+The full work history is in [`log.md`](log.md).

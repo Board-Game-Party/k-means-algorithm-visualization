@@ -1,0 +1,7 @@
+# Feedback from class
+* Add spray brush (scale, eraser)
+* Add panning hand, zoom
+* Can move central point and click to spawn central point at mouse limit with k value and can delete it too
+# Feedback 2
+* เทสปากกาแล้ว ปากกาควร พลอตได้1จุดต่อการกดไม่ใช่ออกมาทีเดียว8จุด แต่เราสามารถกดค้างแล้วลากเพื่อให้จุดเพิ่ม แต่เป้นการเพิ่มโดยออกทีละจุด
+* เทสตัวdashbord กราฟแล้ว พอเราพลอตหรือวาดจุดไปสักพักมันวาดต่ไปไม่ได้ ให้กดลากได้หรือวาดได้โดย unlimit

@@ -1,0 +1,15 @@
+# ให้ทุกไฟล์ข้อความใช้ LF เหมือนกันทุกเครื่อง (แก้ warning LF/CRLF)
+* text=auto eol=lf
+
+# ไฟล์ของ Windows script ใช้ CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# ไฟล์ binary ไม่ต้องแปลง
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
