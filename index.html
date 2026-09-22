@@ -120,6 +120,7 @@
           <span id="lblZoom" class="mono text-[11px] text-[var(--muted)] w-10 text-center">100%</span>
           <button id="bZoomIn"  class="mini" title="Zoom in (+)">+</button>
           <button id="bZoomRst" class="mini" title="Reset the view (0)">⟲ View</button>
+          <button id="bFocus" class="mini" title="Focus on data points (F)">🎯 Focus</button>
         </div>
       </div>
       <div id="toolHint" class="text-[10px] text-[var(--muted)] -mt-1 leading-tight"></div>
@@ -296,7 +297,7 @@ const chart  = $("chart"),  cctx = chart.getContext("2d");
 let cw = 0, ch = 0, plotW = 0, plotH = 0, unit = 1, ox = 0, oy = 0;
 
 /* ======================= GEOMETRY + VIEW (pan / zoom) ======================= */
-const ZMIN = 0.4, ZMAX = 8;
+const ZMIN = 0.05, ZMAX = 8;
 const V = { z: 1, px: 0, py: 0 };        // z = zoom, px/py = pan offset in screen pixels
 S.view = V;
 
@@ -304,15 +305,10 @@ const sc = () => unit * V.z;             // pixels per logical unit, zoom includ
 const px = p => ({ x: ox + p.x * sc() + V.px, y: oy + plotH - p.y * sc() + V.py });
 const toLogical = (mx, my) => ({ x: (mx - ox - V.px) / sc(), y: (plotH - (my - oy - V.py)) / sc() });
 const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
-const inWorld = p => p.x >= 0 && p.x <= LX && p.y >= 0 && p.y <= LY;
+const inWorld = p => true;
 
 /* Keep the data frame from being panned off screen — always leave at least 60px visible */
-function clampPan(){
-  const m = 60, wW = LX * sc(), wH = LY * sc();
-  V.px = Math.min(plotW - m, Math.max(m - wW, V.px));
-  V.py = Math.min(wH - m, Math.max(m - plotH, V.py));
-  markView();
-}
+function clampPan() { markView(); }
 /* Mirror the view state onto the DOM so external tests can read it without touching internals */
 function markView(){
   canvas.dataset.view = V.z.toFixed(3) + "," + V.px.toFixed(1) + "," + V.py.toFixed(1);
@@ -328,6 +324,27 @@ function zoomAt(mx, my, factor){
   clampPan(); syncView();
 }
 function resetView(){ V.z = 1; V.px = 0; V.py = 0; syncView(); }
+
+function focusView(){
+  const all = [...S.points, ...S.centroids];
+  if(!all.length){ resetView(); return; }
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for(const p of all){
+    if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+    if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
+  }
+  const pdX = (maxX - minX) * 0.1 || 10, pdY = (maxY - minY) * 0.1 || 10;
+  minX -= pdX; maxX += pdX; minY -= pdY; maxY += pdY;
+  
+  const zx = plotW / ((maxX - minX) * unit), zy = plotH / ((maxY - minY) * unit);
+  V.z = Math.min(ZMAX, Math.max(ZMIN, Math.min(zx, zy)));
+  
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  V.px = plotW / 2 - cx * sc();
+  V.py = cy * sc() - plotH / 2;
+  markView(); syncView();
+}
+
 function syncView(){ $("lblZoom").textContent = Math.round(V.z * 100) + "%"; markView(); }
 
 function resize(){
@@ -352,11 +369,7 @@ function resize(){
 }
 
 /* Shrinking the window narrows LX — pull stranded points back into view */
-function clampToView(){
-  const mx = LX - 1.5;
-  for(const p of S.points) if(p.x > mx) p.x = mx;
-  for(const c of S.centroids) if(c.x > mx){ c.x = mx; c.ax = Math.min(c.ax, mx); }
-}
+function clampToView(){}
 
 /* ======================= DATA GENERATION ======================= */
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -597,26 +610,29 @@ function drawGrid(){
   ctx.save();
   ctx.beginPath(); ctx.rect(ox, oy, plotW, plotH); ctx.clip();
 
-  const o = px({ x: 0, y: 0 }), f = px({ x: LX, y: LY });
-  ctx.fillStyle = "#0a1123"; ctx.fillRect(o.x, f.y, f.x - o.x, o.y - f.y);
+  ctx.fillStyle = "#0a1123"; ctx.fillRect(ox, oy, plotW, plotH);
 
   ctx.strokeStyle = "rgba(255,255,255,.045)"; ctx.lineWidth = 1;
   const step = V.z >= 3 ? 2 : V.z >= 1.6 ? 5 : 10;
-  for(let gx = step; gx < LX; gx += step){
+  
+  const la = toLogical(ox, oy + plotH);
+  const lb = toLogical(ox + plotW, oy);
+  
+  const startX = Math.floor(la.x / step) * step;
+  const endX = Math.ceil(lb.x / step) * step;
+  for(let gx = startX; gx <= endX; gx += step){
     const x = px({ x: gx, y: 0 }).x;
-    if(x < ox - 1 || x > ox + plotW + 1) continue;
-    ctx.beginPath(); ctx.moveTo(x, f.y); ctx.lineTo(x, o.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, oy + plotH); ctx.lineTo(x, oy); ctx.stroke();
   }
-  for(let gy = step; gy < LY; gy += step){
+  
+  const startY = Math.floor(la.y / step) * step;
+  const endY = Math.ceil(lb.y / step) * step;
+  for(let gy = startY; gy <= endY; gy += step){
     const y = px({ x: 0, y: gy }).y;
-    if(y < oy - 1 || y > oy + plotH + 1) continue;
-    ctx.beginPath(); ctx.moveTo(o.x, y); ctx.lineTo(f.x, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + plotW, y); ctx.stroke();
   }
-  ctx.strokeStyle = "rgba(96,165,250,.28)"; ctx.lineWidth = 1.2;
-  ctx.strokeRect(o.x, f.y, f.x - o.x, o.y - f.y);
   ctx.restore();
 
-  const la = toLogical(ox, oy + plotH), lb = toLogical(ox + plotW, oy);
   ctx.fillStyle = "#54628a"; ctx.font = "10px 'JetBrains Mono', monospace";
   ctx.fillText(la.x.toFixed(0), ox - 3, oy + plotH + 15);
   ctx.fillText("x →", ox + plotW / 2 - 8, oy + plotH + 15);
@@ -1068,7 +1084,7 @@ function onMove(e){
     const c = S.centroids[dragI];
     if(!c) return;
     const w = toLogical(m.x, m.y);
-    const nx = Math.min(LX, Math.max(0, w.x + dragOff.x)), ny = Math.min(LY, Math.max(0, w.y + dragOff.y));
+    const nx = w.x + dragOff.x, ny = w.y + dragOff.y;
     dragMoved += Math.hypot(nx - c.x, ny - c.y);
     c.x = c.ax = nx; c.y = c.ay = ny;
     return;
@@ -1137,6 +1153,7 @@ function onKey(e){
   else if(e.key === "+" || e.key === "=") zoomAt(cw / 2, ch / 2, 1.25);
   else if(e.key === "-" || e.key === "_") zoomAt(cw / 2, ch / 2, 1 / 1.25);
   else if(e.key === "0") resetView();
+  else if(k === "f") focusView();
 }
 
 canvas.addEventListener("pointerdown", onDown);
@@ -1157,6 +1174,7 @@ $("inStab").addEventListener("input",  e => { $("lblStab").textContent  = e.targ
 $("bZoomIn").onclick  = () => zoomAt(cw / 2, ch / 2, 1.25);
 $("bZoomOut").onclick = () => zoomAt(cw / 2, ch / 2, 1 / 1.25);
 $("bZoomRst").onclick = () => { resetView(); say("View reset to 100%"); };
+$("bFocus").onclick = () => { focusView(); say("Focused on data points"); };
 
 /* ======================= CONTROL EVENTS ======================= */
 $("inK").addEventListener("input", e => {
