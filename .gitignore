@@ -18,7 +18,7 @@ desktop.ini
 .idea/
 .vscode/
 
-# --- ไฟล์ส่วนตัว / ของเครื่องมือ (ลบ # หน้าบรรทัดถ้าไม่อยาก commit) ---
-# log.md
-# .claude/agents/worklog.md
-# .agentsroom/
+
+.log.md
+.claude/agents/worklog.md
+.agentsroom/
