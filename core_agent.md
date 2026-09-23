@@ -10,7 +10,8 @@ Two sources, two different jobs. Never mix them up.
 | source | what it is | how to use it |
 |---|---|---|
 | `paybook/` + `DA08 - Clustering.pdf` | **Knowledge base** — the K-means theory and the playbooks this work is built on | Read to get the algorithm right. It is the authority for every explanatory sentence on the page. It never contains work items. |
-| `Memory/` | **Feedback store** — what the user/class wants fixed or improved | Read to get the work list. Every bullet is a task. |
+| `Memory/feedback.md` | **Feedback store** — what the user/class wants fixed or improved in what already exists | Read to get the work list. Every bullet is a task. |
+| `Memory/*_feature.md` | **Feature specs** — a whole new capability, written up on its own | Read to get the spec for one new feature. Build it; do not touch unrelated work. |
 
 - **`paybook/` — the knowledge base (องค์ความรู้สำหรับงาน).**
   - `paybook/Clustering-k-mean.md` — the K-means theory itself (objective, centroids, SSE, initialization problems, limitations). **Every explanatory string in the UI must be traceable to this file**; when the wording of a step, a formula, or a limitation is in question, this file wins over your own phrasing.
@@ -23,6 +24,15 @@ Two sources, two different jobs. Never mix them up.
   - New feedback is appended under a new `# Feedback N` heading. Work the **newest section first**, then re-verify that older sections have not regressed.
   - Feedback may be written in Thai or English; both are authoritative.
   - Never delete or rewrite a bullet in `Memory/feedback.md` — it is the user's record. Track status in §4 / the Rev checklists of this file instead.
+- **`Memory/<name>_feature.md` — a feature specification. One file, one new capability.**
+  - These are **additive**: a `*_feature.md` asks for something that does not exist yet, unlike `feedback.md`,
+    which corrects something that does. Build the feature and **leave every other behaviour alone** — no
+    refactors, no "while I'm here" fixes to unrelated code.
+  - The file carries its own behaviour table, animation timings, CSS and edge cases. Treat those as the spec;
+    where it leaves a gap, follow the conventions already in `index.html` rather than inventing a new style.
+  - Same proof bar as feedback: named tests in `tests/` plus a headless-browser check, then a checklist row
+    in this file and a `log.md` entry.
+  - Shipped so far: `Memory/cluster_focus_feature.md` → see the Cluster focus checklist below.
 
 ## 📝 Task Description
 1. **Data Comprehension:** Analyze the provided K-means data to extract key steps: Initialization, Assignment, Update, and Convergence.
@@ -108,6 +118,19 @@ Two sources, two different jobs. Never mix them up.
        repair can never empty another cluster. With nothing to spare the centroid holds position. The count
        is surfaced in the step message and accumulated on `S.emptyFixed`.
      - Cluster colours and names must be generated, not indexed out of a fixed 8-entry table — any K gets a distinct colour (golden-angle hues after the 8 base ones) and a name (A…Z, AA, AB…). The legend lists up to `LEGENDMAX` and then says "+n more".
+   - **Cluster status click-to-focus (`Memory/cluster_focus_feature.md`):** the legend is not a passive
+     key — every cluster on it is a button.
+     - Clicking one **flies the canvas to that cluster**: a 500 ms easeInOutCubic pan + zoom onto the
+       cluster's bounding box with 15 % padding. Clicking the **same** one again flies back out to fit
+       everything; clicking a **different** one retargets mid-flight instead of fighting the first tween.
+     - While focused, that cluster's points stay solid and every other cluster is drawn at
+       `DIMALPHA = 0.2`; the status bar marks the chosen item `.active` (underlined in its own colour via
+       `--cc`) and fades the rest to `.dimmed`.
+     - A one-point cluster must not zoom to absurdity — the focus zoom is capped at `FOCUSZMAX` on top of
+       the global `ZMAX`.
+     - **The focus can never outlive what it points at.** `sync()` drops it whenever
+       `S.focus >= S.centroids.length` (K lowered, centroid deleted, points cleared), and `doInit` /
+       `hardReset` clear it outright, so re-running k-means always starts from the overview.
    - **Tool state:** one explicit active tool (`Pen` / `Spray` / `Brush` / `Eraser` / `Hand` / `Centroid` / `Random`) shown in the UI, switchable by click and by keyboard shortcut (`P` `S` `B` `E` `H` `C` `R`). Editing tools — `Random` included — are disabled (not silently ignored) while an animation is running; only `Hand` stays live.
 5. **Technical Constraints:**
    - Build a Single Page Application (SPA).
@@ -121,7 +144,7 @@ Two sources, two different jobs. Never mix them up.
 
 ---
 
-## ✅ Delivery Status — REVISION 2 DONE (Feedback 1–7 closed)
+## ✅ Delivery Status — REVISION 2 DONE (Feedback 1–7 closed · 1 feature spec shipped)
 
 | item | value |
 |---|---|
@@ -129,8 +152,8 @@ Two sources, two different jobs. Never mix them up.
 | Docs | `README.md` |
 | Rev 1 | ✅ delivered — verified in headless browser: 0 console errors, 0 failed requests, SSE monotonically decreasing, assignments = nearest centroid, centroids = cluster means |
 | Rev 2 | ✅ delivered — class feedback (`Memory/feedback.md`) implemented, see §4 |
-| Tests | `npm test` → 312 unit tests, **312 pass / 0 fail** · coverage line 98.4% / branch 97.1% / funcs 96.3% |
-| Browser QA | `npm run verify:browser` → 93/93, 0 console errors, 0 failed requests |
+| Tests | `npm test` → 342 unit tests, **342 pass / 0 fail** · coverage line 99.4% / branch 96.3% / funcs 96.5% |
+| Browser QA | `npm run verify:browser` → 105/105, 0 console errors, 0 failed requests |
 
 ### Canvas semantics — settled: the canvas is infinite
 
@@ -301,6 +324,44 @@ Two mitigations keep it cheap — `G` generates from **any** tool, and `R` selec
 suite failing exactly where a user would now have to change tools. They were routed through a `genData()`
 helper that selects 🎲 first, which is the honest encoding of the new flow.
 
+### Cluster focus checklist (`Memory/cluster_focus_feature.md`)
+
+New tests live in their own file, `tests/focus.test.mjs` (30 tests), so the feature is additive in the suite too.
+
+| spec item | status |
+|---|---|
+| status bar items are clickable, with hover / pointer affordance | ☑ `.cluster-status-item` + `role="button"` + `tabindex="0"` · `focus.test.mjs` › "the status items advertise themselves as clickable buttons" + "the stylesheet carries the hover, active and dimmed states" |
+| click → smooth pan + zoom onto that cluster | ☑ `focusCluster` → `tweenView(viewFor(clusterBox(i)))` · `focus.test.mjs` › "the view really travels, and lands on the framing view" + "it eases rather than jumping" |
+| bounding box + ~15 % padding, centred | ☑ `focus.test.mjs` › "viewFor frames the box: its centre lands in the middle of the viewport" + "viewFor leaves padding — the cluster never touches the viewport edge" |
+| click the same cluster again → zoom back out | ☑ `focus.test.mjs` › "clicking the same cluster again zooms back out" + "zooming back out frames everything again" |
+| focused cluster highlighted, others dimmed to ~0.2 on the canvas | ☑ `ctx.globalAlpha` per colour batch · `focus.test.mjs` › "while focused the other clusters are painted faint and the chosen one stays solid" + "the alpha is handed back so nothing after the points is left faded" |
+| active indicator on the status bar, others faded | ☑ `.active` / `.dimmed` classes · `focus.test.mjs` › "the focused item is marked active and the others are dimmed" |
+| 500 ms pan/zoom, easeInOutCubic | ☑ `FOCUSMS = 500`, same easing as the centroid animation |
+| edge: a single-point cluster must not over-zoom | ☑ `FOCUSZMAX` · `focus.test.mjs` › "a single-point cluster does not zoom in absurdly far" |
+| edge: changing cluster mid-animation cancels the old tween | ☑ generation token, not `cancelAnimationFrame` · `focus.test.mjs` › "retargeting mid-flight abandons the first tween instead of fighting it" |
+| edge: re-running k-means resets the view | ☑ `focus.test.mjs` › "re-running k-means returns to the overview" + "clearing the data drops the focus" + "generating new data drops the focus" |
+| edge: cluster deleted / K changed resets the focus | ☑ the `S.focus >= S.centroids.length` guard in `sync()` · `focus.test.mjs` › "lowering K below the focused cluster drops the focus" + "deleting the focused centroid drops the focus" |
+
+**Real-DOM coverage matters here.** The legend is rebuilt by `sync()` on every frame, so the click is
+delegated on `#legend` — and a delegated handler cannot fire against the unit-test stub, whose `innerHTML`
+is a plain string with no child elements. `npm test` reports those handler lines as the only uncovered ones
+in the feature; `browser.smoke.mjs` (12 new checks) is what actually clicks them.
+
+**Two notes on how this was built**
+
+1. `cancelAnimationFrame` is a **no-op in `tests/dom.mjs`**, so cancelling a tween by handle alone would have
+   looked correct in tests and only half-worked in the browser. `tweenView` therefore guards with a
+   generation counter that a superseded frame checks before doing anything — correct in both worlds.
+2. The canvas stub recorded draw *calls* but not the paint *state*, so alpha was invisible to tests. It now
+   snapshots `{alpha, style}` on each `fill` (`__calls._fills`), which is what lets the dimming be asserted
+   rather than assumed.
+
+**Snag worth remembering:** `tests/dom.mjs` replaces `globalThis.performance` with a fake clock, and
+`node:test` reads the same global when it runs a **single file** in-process. `focus.test.mjs` originally
+advanced that clock by 8 s while settling tweens, which stalled the runner (`node --test tests/focus.test.mjs`
+hung with near-zero CPU, though the full glob run passed). Bounding the settle loop to the ~13 frames the
+tween actually needs fixed it. Do not over-advance `dom.advance()`.
+
 ### K / n ceiling removal checklist
 
 | # | item | status |
@@ -341,7 +402,7 @@ helper that selects 🎲 first, which is the honest encoding of the new flow.
 |---|---|---|
 | extract | `tests/extract.mjs` | pulls the real inline `<script>` out of `index.html` into an ESM module — **the tests run the shipped code, never a copy** |
 | browser stub | `tests/dom.mjs` | minimal DOM + canvas stub that records every draw call with its arguments |
-| unit | `tests/{view,algorithm,tools,stroke,render,kn}.test.mjs` | 312 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines, rendering, the K/n controls and empty-cluster repair |
+| unit | `tests/{view,algorithm,tools,stroke,render,kn,focus}.test.mjs` | 342 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines, rendering, the K/n controls and empty-cluster repair |
 | e2e | `tests/browser.smoke.mjs` | real headless browser, real mouse/keyboard, asserts through the DOM only |
 
 Run: `npm test` (fails the build below line 90% / branch 85% / funcs 90%) · `npm run test:quick` for a fast loop.
@@ -351,6 +412,13 @@ invisible to browser tests. Assert through the DOM instead — `#stN`, `#stCent`
 `#phaseName`, and `#canvas[data-view]` (which mirrors `zoom,panX,panY`).
 
 ## 🔁 Feedback workflow (`Memory/`)
+
+`Memory/` carries two kinds of work item and they are handled differently:
+
+| file | means | how to treat it |
+|---|---|---|
+| `feedback.md` | fix or change something that already exists | work the newest `# Feedback N` section first, then re-verify the older ones have not regressed |
+| `<name>_feature.md` | build something new | build exactly that feature, additively; **change no other behaviour**, and add its tests in their own file |
 
 Run this loop at the start of **every** session and whenever the user says "มีฟีดแบ็กใหม่":
 

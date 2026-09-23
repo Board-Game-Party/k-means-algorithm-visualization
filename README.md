@@ -166,6 +166,19 @@ Drawing, hit-testing, brush radius and centroid grabbing all share that one tran
 coordinates and is never rewritten when you zoom or pan. The view state is also mirrored onto `#canvas[data-view]`
 (as `zoom,panX,panY`) so external tests can read it.
 
+### Clicking a cluster to focus on it
+
+The coloured cluster list under the canvas is not just a key — **every entry is a button**.
+
+- **Click a cluster** and the canvas flies to it: a half-second pan and zoom that frames exactly that
+  cluster's points, with a little padding. Its points stay solid while every other cluster fades back, so you
+  can see the shape of one group on its own.
+- The entry you picked is underlined in its own colour; the others fade.
+- **Click it again** to fly back out to the whole dataset. Clicking a *different* cluster just redirects the
+  flight — you do not have to wait for the first one to land.
+- The focus is dropped automatically whenever it would stop making sense: pressing *Initialize*, generating
+  new data, clearing the points, lowering K, or deleting the centroid you were looking at.
+
 ## Testing
 
 ```bash
@@ -181,10 +194,11 @@ The suite **pulls the real `<script>` out of `index.html`** and runs it against 
 | `tests/view.test.mjs` | 36 | coordinate round-trips, zoom limits, unclamped panning on the infinite canvas, data staying put under pan/zoom |
 | `tests/algorithm.test.mjs` | 56 | assign/update/init/best-of-N/presets/animation, SSE falling every round, and empty-cluster repair |
 | `tests/tools.test.mjs` | 61 | brush, eraser, placing–dragging–deleting centroids, the K ceiling, the busy lock |
+| `tests/focus.test.mjs` | 30 | cluster click-to-focus: box maths, framing and padding, the fly-through and its retargeting, canvas dimming, and every reset path |
 | `tests/kn.test.mjs` | 65 | K and n have no fixed maximum, the 1 ≤ K ≤ distinct(N) and n ≥ K rules, K = 1 / K = N boundaries, colours+names for any K, the paired slider+box controls, the K track pinned to N, exact-n generation, the K ↔ n clamp, and the four warning bands |
 | `tests/stroke.test.mjs` | 53 | pen one-press-one-point, spray cadence, stroke continuity, dab spacing, stabilizer |
 | `tests/render.test.mjs` | 41 | brush ring, highlight rings, grid vs zoom, SSE chart, drawing huge point counts |
-| **Total** | **312** | coverage: line **98.4%** · branch **97.1%** · funcs **96.3%** |
+| **Total** | **342** | coverage: line **99.4%** · branch **96.3%** · funcs **96.5%** |
 
 A further 34 checks run in a real headless browser (`tests/browser.smoke.mjs`) using real mouse and keyboard input,
 asserting only through the DOM:

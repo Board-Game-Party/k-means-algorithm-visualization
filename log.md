@@ -1,6 +1,6 @@
 # 📋 Work Log — K-Means Interactive Visualizer
 
-> อัปเดตล่าสุด: 2026-09-23 · รอบปัจจุบัน: **Rev 2.9 (Feedback 7 — 🎲 เป็น tool จริง n เป็น option ของมัน)**
+> อัปเดตล่าสุด: 2026-09-23 · รอบปัจจุบัน: **Rev 3.0 (Feature — คลิก cluster บน status bar เพื่อ focus)**
 > ดูแลโดย subagent `worklog` — เพิ่มแถวใหม่ไว้บนสุดเสมอ
 
 ## สถานะรวม
@@ -8,9 +8,9 @@
 | ด้าน | สถานะ | ตัวเลขล่าสุด |
 |---|:--:|---|
 | ฟีเจอร์ตามฟีดแบ็ก | ✅ | รอบแรก 3/3 + Feedback 2 อีก 2/2 + Feedback 3 อีก 2/2 + Feedback 4 อีก 1/1 + Feedback 5 อีก 2/2 |
-| Unit tests | ✅ | **312 ผ่าน / 0 ตก** |
-| Coverage (`app.mjs`) | ✅ | line **98.4%** · branch **97.1%** · funcs **96.3%** |
-| เบราว์เซอร์จริง | ✅ | 93/93 · console error **0** · failed request **0** |
+| Unit tests | ✅ | **342 ผ่าน / 0 ตก** |
+| Coverage (`app.mjs`) | ✅ | line **99.4%** · branch **96.3%** · funcs **96.5%** |
+| เบราว์เซอร์จริง | ✅ | 105/105 · console error **0** · failed request **0** |
 | ไฟล์ส่งมอบ | ✅ | `index.html` ไฟล์เดียว ไม่ต้อง build |
 
 ## เช็กลิสต์ฟีดแบ็ก (`Memory/feedback.md`)
@@ -78,10 +78,20 @@
 
 **กลับคำตัดสินของรอบที่แล้ว** — รอบ Feedback 6 ผมเลือกไม่ทำเป็น tool เพราะจะเพิ่มคลิก แต่ผู้ใช้สั่งชัดเจนว่าต้องการรูปแบบ tool จริงๆ ต้นทุนคลิกที่เพิ่มขึ้นเป็นเรื่องที่ผู้ใช้ตัดสินเอง ไม่ใช่ผมตัดทิ้งให้ · บรรเทาด้วย `G` ที่ยังสุ่มได้จากทุก tool และ `R` ที่เลือก 🎲 ได้ในคีย์เดียว
 
+### Feature: Cluster Status Click-to-Focus (`Memory/cluster_focus_feature.md`)
+
+| สเปก | สิ่งที่ทำ | สถานะ |
+|---|---|:--:|
+| คลิก cluster บน status bar → canvas zoom + pan ไปที่ cluster นั้น | `focusCluster()` → `tweenView(viewFor(clusterBox(i)))` แพน+ซูม 500ms easeInOutCubic กรอบพอดี bounding box + padding 15% | ✅ |
+| คลิกซ้ำ → zoom out กลับภาพรวม | คลิกตัวเดิมเป็น toggle · คลิกตัวอื่นคือเปลี่ยนเป้าระหว่างบิน | ✅ |
+| highlight cluster ที่เลือก · dim ตัวอื่น (opacity 0.2) | `ctx.globalAlpha` ต่อกลุ่มสีในลูปวาดจุด + คลาส `.active` / `.dimmed` บน status bar | ✅ |
+| Edge cases ครบ | จุดเดียวไม่ซูมเกิน (`FOCUSZMAX`) · เปลี่ยน cluster ระหว่าง animate ยกเลิกตัวเก่า · re-run / ลบ centroid / ลด K → reset focus | ✅ |
+
 ## บันทึกการทำงาน
 
 | # | วันที่ | สิ่งที่ทำ | ไฟล์ที่แตะ | ผลตรวจ |
 |---:|---|---|---|---|
+| 34 | 2026-09-23 | **Feature (ไฟล์สเปกแยก `Memory/cluster_focus_feature.md`):** คลิก cluster บน status bar เพื่อ focus — เพิ่ม `clusterBox`/`viewFor`/`allBox`/`tweenView`/`focusCluster`/`clearFocus` + CSS 4 คลาส + คลิกแบบ delegated บน `#legend` (เพราะ legend ถูก re-render ทุกเฟรม) · **ยกเลิก tween ด้วย generation token ไม่ใช่ `cancelAnimationFrame`** เพราะ stub ทำ `cancelAnimationFrame` เป็น no-op — ถ้าพึ่งมันจะผ่านเทสต์แต่พังจริงครึ่งหนึ่ง · เพิ่มให้ stub บันทึก `{alpha, style}` ตอน `fill` เพื่อทดสอบการ dim ได้จริง · **เจอปัญหา:** `dom.mjs` แทน `globalThis.performance` ด้วยนาฬิกาปลอม และ `node:test` อ่าน global เดียวกันตอนรันไฟล์เดี่ยว — เดิม settle เร่งนาฬิกา 8 วินาที ทำให้ runner ค้าง แก้โดยจำกัดเป็น ~13 เฟรมเท่าที่ tween ต้องใช้ · ไม่แตะพฤติกรรมเดิมเลย | `index.html`, `tests/focus.test.mjs` (ใหม่), `tests/dom.mjs`, `tests/browser.smoke.mjs`, `core_agent.md`, `README.md` | 342/342 ✅ · เบราว์เซอร์ 105/105 ✅ |
 | 33 | 2026-09-23 | **Feedback 7:** ทำ `🎲` เป็น tool ตัวที่ 7 จริงๆ (`data-tool="random"`, `TOOLS.random`, คีย์ `R`) และย้าย `#randOpts` ไปอยู่ตำแหน่งเดียวกับ `#brushOpts` โผล่เฉพาะตอนเลือกเครื่องมือนี้ · tool นี้ไม่วาดอะไรบนแคนวาส เพราะการสุ่มแทนที่ข้อมูลทั้งชุด ต้องเป็นการกระทำที่ตั้งใจ · **กลับคำ** เทสต์ 2 ข้อที่ผมเขียนไว้รอบก่อน (`.tool` ต้องเท่ากับ 6) · เทสต์เบราว์เซอร์ 12 จุดที่กด `#bGen` ตอนเลือก tool อื่นอยู่เริ่ม timeout เพราะปุ่มถูกซ่อน — ซึ่งคือต้นทุนคลิกที่เพิ่มขึ้นจริงๆ จึงเปลี่ยนไปเรียกผ่าน `genData()` ที่เลือก 🎲 ก่อน | `index.html`, `tests/kn.test.mjs`, `tests/dom.mjs`, `tests/browser.smoke.mjs`, `core_agent.md`, `README.md` | 312/312 ✅ · เบราว์เซอร์ 93/93 ✅ |
 | 32 | 2026-09-23 | **Feedback 6:** ย้าย `#bGen` + `#inN` + `#inNR` เข้ากลุ่ม `#randOpts` ใน tools bar · `#nNote` ไปบรรทัด hint · ช่องที่ว่างในตารางยกให้ `Clusters (K)` (`lg:col-span-2`) ซึ่งช่วยให้รางสไลเดอร์ K ยาวขึ้นด้วย · เพิ่มคีย์ลัด `G` · ลบ `#lblN` + stub ใน `dom.mjs` (stub ที่หน้าเว็บจริงไม่มี จะทำให้เทสต์ผ่านทั้งที่เบราว์เซอร์ได้ `null`) · เขียนเทสต์ "ปุ่มอยู่คู่กับ n" ใหม่ให้เช็ค **การอยู่ในกลุ่มเดียวกัน** แทนลำดับใน source · ตรวจภาพหน้าจอจริง แถบ brush options ตกลงบรรทัดที่สองอย่างเรียบร้อย ไม่พัง | `index.html`, `tests/kn.test.mjs`, `tests/algorithm.test.mjs`, `tests/dom.mjs`, `core_agent.md`, `README.md` | 308/308 ✅ · เบราว์เซอร์ 84/84 ✅ |
 | 31 | 2026-09-23 | **Feedback 6 ครบ 7 task:** เปลี่ยนเพดาน K เป็น `distinct(N)` (memoise บน identity+length กัน O(N) ทุกเฟรม) · ผูก K ↔ n แบบ clamp ตอน commit · `nSlideMax ≥ kSlideMax` · ปิดปุ่ม + เช็คซ้ำใน `generate()` · เขียนข้อความเตือนใหม่ให้ขึ้นต้นด้วย `Need n ≥ K` · ซ่อม cluster ว่างใน `meanUpdate()` · คำเตือน 4 ระดับจาก `kQualityHint()` · **ตรวจก่อนแก้ตามที่สเปกสั่ง: ไม่มีบั๊ก NaN จริง** — `meanUpdate()` กัน `count === 0` อยู่แล้ว แต่ทำ relocation ให้เพราะเป็นของดีจริง พร้อมเพิ่มการ์ด 2 ชั้นที่สเปกไม่ได้เขียนไว้ (กันดูด cluster สมาชิกเดียวจนวนไม่จบ) | `index.html`, `tests/kn.test.mjs`, `tests/algorithm.test.mjs`, `tests/browser.smoke.mjs`, `core_agent.md`, `README.md` | 306/306 ✅ · เบราว์เซอร์ 84/84 ✅ |
