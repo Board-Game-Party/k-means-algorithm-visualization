@@ -26,6 +26,11 @@ export default async function run(page){
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }, v);
+  /* mid-typing only — no "change", so the feedback-6 commit clamp does not fire */
+  const typeNum = async (sel, v) => page.locator(sel).evaluate((el, val) => {
+    el.value = String(val);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }, v);
   ok("the K box is a number field with no maximum",
      (await page.locator("#inK").getAttribute("type")) === "number" && (await page.locator("#inK").getAttribute("max")) === null);
   ok("the n box is a number field with no maximum",
@@ -35,10 +40,12 @@ export default async function run(page){
   await page.locator("#bInit").click();
   ok("12 centroids really get placed", (await txt("#stCent")).trim() === "12 / 12", await txt("#stCent"));
   ok("the legend names all 12 clusters", (await page.locator("#legend span").count()) >= 12);
+  await setNum("#inK", 1);
   await setNum("#inN", 9);
   await page.locator("#bGen").click();
   ok("n = 9 generates a handful of points, not a fixed minimum", (await num("#stN")) <= 12, await txt("#stN"));
-  ok("K = 12 > N = 9 is flagged", (await txt("#kNote")).includes("K > N"), await txt("#kNote"));
+  await typeNum("#inK", 12);                             // typed, not committed — K may exceed N
+  ok("K = 12 > N = 9 is flagged", (await txt("#kNote")).includes("K > distinct positions"), await txt("#kNote"));
   ok("Initialize is disabled while K > N", await page.locator("#bInit").isDisabled());
   await page.locator("#bInit").click({ force: true }).catch(() => {});
   await setNum("#inK", await num("#stN"));               // exactly K = N (the preset rounds, so read the real count)
@@ -61,14 +68,120 @@ export default async function run(page){
   await setNum("#inK", 9);
   ok("typing K moves the slider", (await page.locator("#inKR").inputValue()) === "9");
   await setNum("#inK", 260);
-  ok("the K slider stretches instead of capping a typed K",
-     Number(await page.locator("#inKR").getAttribute("max")) >= 260 &&
+  ok("a typed K past the track's end is kept by the box, not capped",
      (await page.locator("#inK").inputValue()) === "260",
-     await page.locator("#inKR").getAttribute("max"));
+     await page.locator("#inK").inputValue());
   await setNum("#inNR", 60);
   ok("scrubbing the n slider fills the n box", (await page.locator("#inN").inputValue()) === "60");
   await page.locator("#bGen").click();
   ok("a slider-set n really generates that many points", Math.abs((await num("#stN")) - 60) <= 8, await txt("#stN"));
+  await setNum("#inN", 150);
+  await page.locator("#bGen").click();
+  await setNum("#inK", 3);
+
+  /* 1d. feedback 5 — K and the data points relate the way the theory says */
+  ok("the generate button sits inside the n control group",
+     await page.locator("#inN").evaluate(el => {
+       const cell = el.closest("div").parentElement;
+       return !!cell.querySelector("#bGen");
+     }));
+  for(const [kind, n] of [["blobs", 7], ["sizes", 33], ["density", 100], ["rings", 45], ["outliers", 61]]){
+    await page.locator("#inData").selectOption(kind);      // selecting a preset regenerates
+    await setNum("#inN", n);
+    await page.locator("#bGen").click();
+    ok(`the ${kind} preset generates exactly n = ${n} points`, (await num("#stN")) === n, await txt("#stN"));
+  }
+  await page.locator("#inData").selectOption("blobs");
+  await setNum("#inN", 40);
+  await page.locator("#bGen").click();
+  ok("the K slider's top end is N, the data-point count",
+     (await page.locator("#inKR").getAttribute("max")) === "40",
+     await page.locator("#inKR").getAttribute("max"));
+  await setNum("#inKR", 40);
+  ok("the far end of the K track is still a legal K", !(await page.locator("#bInit").isDisabled()));
+  await typeNum("#inK", 90);
+  ok("a typed K above N still sticks and is flagged",
+     (await page.locator("#inK").inputValue()) === "90" && (await txt("#kNote")).includes("K > distinct positions"),
+     await txt("#kNote"));
+  ok("the track still refuses to go past N even so",
+     (await page.locator("#inKR").getAttribute("max")) === "40",
+     await page.locator("#inKR").getAttribute("max"));
+  ok("and the thumb pins at N rather than reading past it",
+     (await page.locator("#inKR").inputValue()) === "40",
+     await page.locator("#inKR").inputValue());
+  await setNum("#inK", 3);
+  ok("the track is still exactly N after the overshoot is gone",
+     (await page.locator("#inKR").getAttribute("max")) === "40",
+     await page.locator("#inKR").getAttribute("max"));
+  /* the feedback-5 examples, literally: N = 999 → 999, N = 696 → 696 */
+  for(const N of [999, 696]){
+    await setNum("#inN", N);
+    await page.locator("#bGen").click();
+    ok(`N = ${N} generates exactly ${N} points`, (await num("#stN")) === N, await txt("#stN"));
+    ok(`with N = ${N} the K track stops at ${N}`,
+       (await page.locator("#inKR").getAttribute("max")) === String(N),
+       await page.locator("#inKR").getAttribute("max"));
+    await page.locator("#inKR").evaluate(el => {               // drag the thumb to the very end
+      el.value = String(Number(el.max) + 500);                 // ask for more than the track allows
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    ok(`the K slider cannot be dragged past ${N}`, (await txt("#stCent")).trim() === `0 / ${N}`, await txt("#stCent"));
+    ok(`K = N = ${N} is a legal clustering`, !(await page.locator("#bInit").isDisabled()));
+  }
+  await setNum("#inN", 40);
+  await page.locator("#bGen").click();
+  await setNum("#inK", 3);
+  await typeNum("#inN", 2);                              // typed, not committed — n may sit below K
+  ok("the n control leads the warning with the rule that must hold",
+     (await txt("#nNote")).startsWith("Need n ≥ K"), await txt("#nNote"));
+  ok("New random data is disabled while n < K", await page.locator("#bGen").isDisabled());
+  await setNum("#inN", 150);
+  await page.locator("#bGen").click();
+  await setNum("#inK", 3);
+
+  /* 1e. feedback 6 — the n / K conditions and k-means robustness */
+  await setNum("#inN", 1936);
+  await page.locator("#bGen").click();
+  ok("N = 1936 generated exactly", (await num("#stN")) === 1936, await txt("#stN"));
+  ok("the n track always reaches at least as far as the K track",
+     Number(await page.locator("#inNR").getAttribute("max")) >= Number(await page.locator("#inKR").getAttribute("max")),
+     (await page.locator("#inNR").getAttribute("max")) + " vs " + (await page.locator("#inKR").getAttribute("max")));
+  await setNum("#inK", 10);
+  ok("an ordinary K = 10 at N = 1936 says nothing but the green tick",
+     (await txt("#kNote")).startsWith("K ≤ N ✓") && (await page.locator("#kNote").getAttribute("class")) === "note",
+     await txt("#kNote"));
+  await setNum("#inK", 120);
+  ok("a K above 2√N is a soft grey hint",
+     (await txt("#kNote")).includes("higher than typical") &&
+     (await page.locator("#kNote").getAttribute("class")).includes("hint"),
+     await txt("#kNote"));
+  await setNum("#inK", 1936);
+  ok("K = N is amber and still runnable",
+     (await txt("#kNote")).includes("every point is its own cluster") &&
+     (await page.locator("#kNote").getAttribute("class")).includes("caution") &&
+     !(await page.locator("#bInit").isDisabled()),
+     await txt("#kNote"));
+  /* task 3 — the two controls drag each other */
+  await setNum("#inK", 10);
+  await setNum("#inNR", 4);
+  ok("lowering n below K drags K down with it", (await page.locator("#inK").inputValue()) === "4",
+     await page.locator("#inK").inputValue());
+  await setNum("#inKR", 60);
+  ok("raising K past n drags n up with it", (await page.locator("#inN").inputValue()) === "60",
+     await page.locator("#inN").inputValue());
+  /* task 6 — a stranded centroid must not poison SSE or MAX MOVE */
+  await setNum("#inN", 400);
+  await page.locator("#bGen").click();
+  await setNum("#inK", 6);
+  await page.locator("#bInit").click();
+  await page.locator("#bRun").click();
+  await page.waitForFunction(() => document.getElementById("phaseName")?.textContent?.includes("Converged")
+                                || document.getElementById("msg")?.textContent?.includes("Converged"),
+                             null, { timeout: 15000 }).catch(() => {});
+  ok("a full run leaves SSE a real number", /^[\d.]+$/.test((await txt("#stSSE")).trim()), await txt("#stSSE"));
+  ok("a full run leaves MAX MOVE a real number", /^[\d.]+$/.test((await txt("#stMove")).trim()), await txt("#stMove"));
+  ok("no NaN anywhere in the stats bar",
+     !(await page.locator(".card2").allInnerTexts()).join(" ").includes("NaN"));
   await setNum("#inN", 150);
   await page.locator("#bGen").click();
   await setNum("#inK", 3);

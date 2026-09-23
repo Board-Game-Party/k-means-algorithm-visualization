@@ -15,9 +15,19 @@ const KMIN = 1;
    typed; it never shrinks, so the track cannot rescale under a thumb mid-drag, and it can never
    clamp a typed value. */
 const KSLIDE = 20, NSLIDE = 1000;
-let kTop = KSLIDE, nTop = NSLIDE;
-const kSlideMax = () => (kTop = Math.max(kTop, S.k));
-const nSlideMax = () => (nTop = Math.max(nTop, readInt("inN", 150)));
+let nTop = NSLIDE;
+/* Feedback 5 — K and the data points must relate the way the theory says they do:
+   "Data point = 999 → slider bar ต้องลากได้แค่ 999 · Data point = 696 → slider bar <= 696
+    เราจะลากเกินไม่ได้". So the track stops AT N and never stretches past it, whatever was typed.
+   Typing still wins for the VALUE (feedback 3: never rewrite what the user typed) — a K above N
+   stays in the box, turns the box red and blocks Initialize; the slider simply pins at its top end,
+   because a thumb position beyond N would be a K the theory does not allow. With no data there is
+   no N to bound against, so the slider falls back to a usable default. The track depends only on N,
+   which never changes mid-drag, so it cannot rescale under the thumb either. */
+const kSlideMax = () => kCap() || KSLIDE;
+/* Task 2: the n track must always reach at least as far as the K track, otherwise a user stuck at
+   K > n could not drag n up to fix it — the control would be a dead end. */
+const nSlideMax = () => (nTop = Math.max(nTop, NSLIDE, readInt("inN", 150), kSlideMax(), S.k));
 /** HSL → #rrggbb, so every cluster colour stays a hex string and the "+33" alpha suffixes keep working */
 function hslHex(h, s, l){
   const f = n => {
@@ -46,16 +56,24 @@ function readInt(id, dflt, min = 1){
   const v = Math.round(+$(id).value);
   return Number.isFinite(v) && v >= min ? v : dflt;
 }
-/** How many clusters the current data can actually support: K ≤ N */
-const kCap = () => S.points.length;
-/** Distinct coordinates — the tighter bound: identical points can never be split into different clusters */
+/** Distinct coordinates — the REAL cap on K: identical points always share a nearest centroid, so
+    K copies of one coordinate can never be split into K clusters. Memoised on (array identity, length)
+    because syncBounds() runs every frame and the point count is unbounded; every path that changes the
+    data either replaces the array (generate / clear / erase / tests) or changes its length (pen / brush),
+    and nothing ever mutates a point's x/y in place. */
+let dpCache = { arr: null, len: -1, val: 0 };
 function distinctPoints(pts = S.points){
+  const live = pts === S.points;
+  if(live && dpCache.arr === pts && dpCache.len === pts.length) return dpCache.val;
   const seen = new Set();
   for(const p of pts) seen.add(p.x.toFixed(4) + "|" + p.y.toFixed(4));
+  if(live) dpCache = { arr: pts, len: pts.length, val: seen.size };
   return seen.size;
 }
+/** How many clusters the current data can actually support — distinct positions, not the raw count */
+const kCap = () => distinctPoints();
 /** Is the requested K runnable on the current data? (the N ≥ K rule) */
-const kFeasible = () => S.points.length >= S.k && S.k >= KMIN;
+const kFeasible = () => kCap() >= S.k && S.k >= KMIN;
 
 const EPS    = 1e-6;            // convergence threshold (logical units)
 const SPEEDS = [900, 480, 240, 60];
@@ -67,7 +85,8 @@ let   LX     = 160;             // logical width — follows the canvas aspect r
 const S = {
   points: [], centroids: [],
   k: 3, phase: "idle", iter: 0, sse: null, maxMove: null,
-  history: [], running: false, animating: false, initMethod: "random", speed: 1
+  history: [], running: false, animating: false, initMethod: "random", speed: 1,
+  emptyFixed: 0
 };
 
 window.S = S;   // expose state for debugging / automated verification
@@ -158,6 +177,18 @@ function gauss(){
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 }
 const clampPt = p => ({ x: Math.min(LX - 2, Math.max(2, p.x)), y: Math.min(98, Math.max(2, p.y)), c: -1 });
+/* Split n into parts that sum to EXACTLY n (largest-remainder). Feedback 5: the theory rule is
+   stated against N, so "roughly n" is not good enough — asking for n = 5 and getting 4 silently
+   changes whether K = 5 is legal. */
+function split(n, w){
+  const tot = w.reduce((a, b) => a + b, 0);
+  const exact = w.map(x => n * x / tot);
+  const out = exact.map(Math.floor);
+  let rest = n - out.reduce((a, b) => a + b, 0);
+  const order = exact.map((e, i) => ({ i, f: e - Math.floor(e) })).sort((a, b) => b.f - a.f);
+  for(let j = 0; rest > 0; j++, rest--) out[order[j % order.length].i]++;
+  return out;
+}
 function blob(cx, cy, sd, n, out){
   for(let i = 0; i < n; i++) out.push(clampPt({ x: cx + gauss() * sd, y: cy + gauss() * sd }));
 }
@@ -181,18 +212,25 @@ function spreadCenters(g){
 
 function generate(){
   const n = readInt("inN", 150), kind = $("inData").value, pts = [];
+  if(n < S.k){                                     // Task 4: belt-and-braces — the button is disabled too
+    say(`⚠️ Need n ≥ K — n = ${n} is less than K = ${S.k}. Increase n or lower K.`);
+    sync(); return;
+  }
   if(kind === "blobs"){
     /* one blob per cluster the user asked for, but never more blobs than points */
     const g = Math.max(1, Math.min(8, S.k, n)), cs = spreadCenters(g), sd = sdFor(g);
-    for(let i = 0; i < g; i++) blob(cs[i].x, cs[i].y, sd, Math.max(1, Math.round(n / g)), pts);
+    const cnt = split(n, new Array(g).fill(1));
+    for(let i = 0; i < g; i++) blob(cs[i].x, cs[i].y, sd, cnt[i], pts);
   } else if(kind === "sizes"){
     const cs = spreadCenters(3), w = [0.08, 0.25, 0.67], sd = sdFor(3) * 0.95;
-    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sd, Math.max(1, Math.round(n * w[i])), pts);
+    const cnt = split(n, w);
+    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sd, cnt[i], pts);
   } else if(kind === "density"){
     const cs = spreadCenters(3), b = sdFor(3), sd = [b * 0.34, b, b * 2.1];
-    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sd[i], Math.max(1, Math.round(n / 3)), pts);
+    const cnt = split(n, [1, 1, 1]);
+    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sd[i], cnt[i], pts);
   } else if(kind === "rings"){
-    const half = Math.round(n / 2), R = Math.min(LX, LY) / 2, cx = LX / 2, cy = LY / 2;
+    const half = split(n, [1, 1])[0], R = Math.min(LX, LY) / 2, cx = LX / 2, cy = LY / 2;
     for(let i = 0; i < half; i++){
       const a = rnd(0, Math.PI * 2), r = rnd(0, R * 0.24);
       pts.push(clampPt({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }));
@@ -202,8 +240,10 @@ function generate(){
       pts.push(clampPt({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }));
     }
   } else {
-    const cs = spreadCenters(3), strays = Math.max(1, Math.min(8, Math.round(n * 0.06)));
-    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sdFor(3) * 0.8, Math.max(1, Math.round((n - strays) / 3)), pts);
+    const cs = spreadCenters(3);
+    const strays = Math.min(n, Math.max(1, Math.min(8, Math.round(n * 0.06))));
+    const cnt = split(n - strays, [1, 1, 1]);
+    for(let i = 0; i < 3; i++) blob(cs[i].x, cs[i].y, sdFor(3) * 0.8, cnt[i], pts);
     for(let i = 0; i < strays; i++) pts.push(clampPt({ x: rnd(3, LX - 3), y: rnd(3, 97) }));
   }
   S.points = pts;
@@ -246,6 +286,14 @@ function assignAll(points, cents){
 }
 
 /* Empty cluster → keep the old centroid so nothing turns into NaN */
+/* Task 6: a cluster can come out empty even when K ≤ N — Lloyd's gives no guarantee. Dividing a zero
+   count would give NaN, so an empty centroid is re-seeded onto the point currently worst served (the one
+   furthest from its own centroid), which is the standard repair and drives SSE down.
+   Two guards keep the repair from doing harm: a point is claimed at most once, so two empty clusters
+   never land on the same coordinate; and only clusters with at least two members may donate, so fixing
+   one empty cluster can never empty another. With nothing to spare the centroid simply holds its
+   position — the original no-NaN behaviour. */
+let lastEmptyFixed = 0;
 function meanUpdate(points, cents){
   const sx = new Array(cents.length).fill(0),
         sy = new Array(cents.length).fill(0),
@@ -254,7 +302,24 @@ function meanUpdate(points, cents){
     if(p.c < 0) continue;
     sx[p.c] += p.x; sy[p.c] += p.y; n[p.c]++;
   }
-  return cents.map((c, i) => n[i] ? { x: sx[i] / n[i], y: sy[i] / n[i] } : { x: c.x, y: c.y });
+  const out = cents.map((c, i) => n[i] ? { x: sx[i] / n[i], y: sy[i] / n[i] } : { x: c.x, y: c.y });
+  lastEmptyFixed = 0;
+  const taken = new Set(), left = n.slice();
+  for(let i = 0; i < cents.length; i++){
+    if(n[i]) continue;
+    let far = -1, fd = -1;
+    for(let j = 0; j < points.length; j++){
+      const p = points[j];
+      if(p.c < 0 || taken.has(j) || left[p.c] < 2) continue;
+      const c = cents[p.c], d = (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+      if(d > fd){ fd = d; far = j; }
+    }
+    if(far < 0) continue;                          // nothing to spare — hold position, still finite
+    taken.add(far); left[points[far].c]--;
+    out[i] = { x: points[far].x, y: points[far].y };
+    lastEmptyFixed++;
+  }
+  return out;
 }
 
 /* Run k-means to completion silently (no animation) — used by Best-of-N */
@@ -274,14 +339,13 @@ function silentRun(src, k, method, maxIt = 100){
 /* ======================= STEP MACHINE ======================= */
 function doInit(){
   S.k = readInt("inK", S.k);
-  if(!kFeasible()){                                  // the one hard rule of k-means: 1 ≤ K ≤ N
-    say(`⚠️ K = ${S.k} needs at least ${S.k} data points — there are ${S.points.length}. K-means requires K ≤ N.`);
+  if(!kFeasible()){                                  // the one hard rule: 1 ≤ K ≤ distinct(N)
+    const dp = kCap(), N = S.points.length;
+    say(dp < N
+      ? `⚠️ K = ${S.k} needs ${S.k} DISTINCT positions — there are ${N} points but only ${dp} distinct. Identical points always share a nearest centroid, so they can never be split apart.`
+      : `⚠️ K = ${S.k} needs at least ${S.k} data points — there are ${N}. K-means requires K ≤ N.`);
     sync(); return;
   }
-  const dp = distinctPoints();
-  const dupWarn = dp < S.k
-    ? ` · ⚠️ only ${dp} distinct positions for K = ${S.k}, so some clusters will come out empty (identical points can never be split apart)`
-    : "";
   S.initMethod = $("inInit").value;
   S.points.forEach(p => p.c = -1);
   S.centroids = pickInitial(S.points, S.k, S.initMethod)
@@ -289,7 +353,7 @@ function doInit(){
   S.phase = "assign"; S.iter = 0; S.sse = null; S.maxMove = null; S.history = [];
   say((S.initMethod === "farthest"
       ? "Initial centroids chosen farthest-first — the starting points are as far apart as possible"
-      : "Initial centroids sampled at random — press again a few times and the outcome changes") + dupWarn);
+      : "Initial centroids sampled at random — press again a few times and the outcome changes"));
   sync();
 }
 
@@ -304,6 +368,8 @@ function doAssign(){
 
 function doUpdate(){
   const nc = meanUpdate(S.points, S.centroids);
+  const fixed = lastEmptyFixed;
+  S.emptyFixed += fixed;
   S.maxMove = Math.max(...nc.map((c, i) => Math.hypot(c.x - S.centroids[i].x, c.y - S.centroids[i].y)));
   S.iter++;
   const done = S.maxMove < EPS;
@@ -313,7 +379,8 @@ function doUpdate(){
     S.phase = done ? "done" : "assign";
     say(done
       ? `✅ Converged! the centroids stopped moving (${S.iter} iterations, SSE = ${S.sse.toFixed(2)})`
-      : `Update: moved each centroid to its cluster mean (largest move ${S.maxMove.toFixed(3)} units)`);
+      : `Update: moved each centroid to its cluster mean (largest move ${S.maxMove.toFixed(3)} units)`
+        + (fixed ? ` · ♻️ ${fixed} empty cluster${fixed === 1 ? "" : "s"} re-seeded onto the worst-served points (${S.emptyFixed} so far)` : ""));
     sync();
   });
   sync();
@@ -622,7 +689,7 @@ function sync(){
   $("bInit").disabled = isBusy || !kFeasible();
   $("bStep").disabled = isBusy || S.points.length === 0 || S.phase === "done";
   $("bBest").disabled = isBusy || !kFeasible();
-  $("bGen").disabled  = isBusy;
+  $("bGen").disabled  = isBusy || readInt("inN", 150) < S.k;   // Task 4: n ≥ K or there is nothing to generate
   $("bClr").disabled  = isBusy;
   $("bRun").textContent = S.running ? "⏸ Stop" : "▶️ Run to Completion";
   $("bRun").disabled = S.points.length === 0 || (S.phase === "done" && !S.running);
@@ -644,24 +711,47 @@ function sync(){
   drawChart();
 }
 
-/* K and n have no fixed ceiling — the UI just reports whether the current pair is runnable (K ≤ N) */
+/* K and n have no fixed ceiling — the UI reports whether the current pair is runnable (K ≤ distinct N)
+   and, separately, whether it is worth running at all (Task 7). */
 function syncBounds(){
-  const N = S.points.length, k = S.k;
+  const N = S.points.length, dp = kCap(), k = S.k;
   $("lblK").textContent = k;
   const n = readInt("inN", 150);
   $("lblN").textContent = n;
   /* mirror the typed values onto the sliders — max first, so the value is never clamped on the way in */
-  $("inKR").max = kSlideMax(); $("inKR").value = k;
+  const kMax = kSlideMax();
+  $("inKR").max = kMax; $("inKR").value = Math.min(k, kMax);   // a K past the cap pins the thumb; the box keeps the truth
   $("inNR").max = nSlideMax(); $("inNR").value = n;
-  const bad = N > 0 && k > N;
+
+  /* Task 5: the bound is the number of DISTINCT positions; say so when it differs from the raw count */
+  const bad = N > 0 && k > dp;
+  const counts = dp < N ? `N = ${N}, distinct = ${dp}` : `N = ${N}`;
+  const [qCls, qTxt] = kQualityHint(k, dp);
   $("inK").classList.toggle("bad", bad);
-  $("kNote").className = "note" + (bad ? " warn" : "");
+  $("kNote").className = "note" + (bad ? " warn" : qTxt ? " " + qCls : "");
   $("kNote").textContent = N === 0
     ? "no data yet · K ≤ N once points exist"
     : bad
-      ? `K > N — needs ${k - N} more point${k - N === 1 ? "" : "s"} (N = ${N})`
-      : `K ≤ N ✓ (N = ${N}${k === N ? ", K = N → SSE 0" : ""})`;
-  $("nNote").textContent = "no upper limit · slider reaches " + nTop;
+      ? `K > distinct positions — needs ${k - dp} more distinct point${k - dp === 1 ? "" : "s"} (${counts})`
+      : qTxt || `K ≤ N ✓ (${counts})`;
+
+  /* Task 1: lead with the rule that must hold, so the line cannot be misread as "n must be below K" */
+  const nShort = n < k;
+  $("inN").classList.toggle("bad", nShort);
+  $("nNote").className = "note" + (nShort ? " warn" : "");
+  $("nNote").textContent = nShort
+    ? `Need n ≥ K — n = ${n} is less than K = ${k}. Increase n or lower K.`
+    : `n ≥ K ✓ · generates exactly ${n} points`;
+}
+
+/* Task 7: K ≤ distinct(N) only says the run is *possible*. This says whether it is *meaningful*.
+   Returns [class, text] — "" means nothing worth saying. */
+function kQualityHint(K, N){
+  if(!N || K > N) return ["", ""];
+  if(K === N)            return ["caution", "K = N: every point is its own cluster (SSE = 0, not meaningful)"];
+  if(N / K < 2)          return ["caution", `K is very high: only ${(N / K).toFixed(1)} points per cluster on average`];
+  if(K > 2 * Math.sqrt(N)) return ["hint", `K is higher than typical (try around ${Math.round(Math.sqrt(N / 2))})`];
+  return ["", ""];
 }
 
 const say = t => { $("msg").textContent = t; };   // the status line under the buttons — every warning the user must read lands here
@@ -1008,24 +1098,43 @@ function applyK(raw){
     sync();
   }
 }
+/* Task 3 — K and n are bound to each other: raising K drags n up, lowering n drags K down, so the
+   pair can never settle in the unusable n < K state. Dragging a slider commits on every step, so it
+   clamps live; the typed boxes clamp on `change` (blur / Enter) only, never per keystroke, so typing
+   "1672" one digit at a time is not fought by the clamp. */
+function raiseNfor(k){
+  if(readInt("inN", 150) >= k) return;
+  $("inN").value = k;                                        // n follows K up
+}
+function lowerKfor(n){
+  if(S.k <= n) return false;
+  $("inK").value = n;                                        // K follows n down
+  applyK(n);
+  return true;
+}
 $("inK").addEventListener("input", e => { applyK(Math.round(+e.target.value)); });
 $("inKR").addEventListener("input", e => {                   // scrubbing writes the box, then takes the same path
   const v = Math.round(+e.target.value);
   $("inK").value = v;
+  raiseNfor(v);
   applyK(v);
 });
-$("inK").addEventListener("change", e => {                   // normalise whatever was left in the box
+$("inK").addEventListener("change", e => {                   // normalise + clamp on commit, not per keystroke
   const v = Math.max(KMIN, Math.round(+e.target.value) || KMIN);
-  e.target.value = v; S.k = v; sync();
+  e.target.value = v; S.k = v;
+  raiseNfor(v);
+  sync();
 });
 $("inN").addEventListener("input", () => { sync(); });
 $("inNR").addEventListener("input", e => {
-  $("inN").value = Math.round(+e.target.value);
-  sync();
+  const v = Math.round(+e.target.value);
+  $("inN").value = v;
+  if(!lowerKfor(v)) sync();                                  // applyK already syncs when it fires
 });
 $("inN").addEventListener("change", e => {
-  e.target.value = Math.max(1, Math.round(+e.target.value) || 1);
-  sync();
+  const v = Math.max(1, Math.round(+e.target.value) || 1);
+  e.target.value = v;
+  if(!lowerKfor(v)) sync();
 });
 $("inSpd").addEventListener("input", e => { S.speed = +e.target.value; $("lblSpd").textContent = SPDLBL[S.speed]; });
 $("inData").addEventListener("change", generate);
@@ -1046,7 +1155,8 @@ new ResizeObserver(() => { resize(); drawChart(); }).observe(canvas);
 window.__app = {
   S, V, TOOLS, COLORS, NAMES, LINEMAX, LEGENDMAX, EPS, SPEEDS, KMIN,
   colorFor, nameFor, hslHex, readInt, kCap, distinctPoints, kFeasible, syncBounds,
-  applyK, kSlideMax, nSlideMax, KSLIDE, NSLIDE,
+  applyK, kSlideMax, nSlideMax, KSLIDE, NSLIDE, split, kQualityHint, raiseNfor, lowerKfor,
+  get lastEmptyFixed(){ return lastEmptyFixed; },
   get LX(){ return LX; }, get LY(){ return LY; },
   get unit(){ return unit; }, get ox(){ return ox; }, get oy(){ return oy; },
   get plotW(){ return plotW; }, get plotH(){ return plotH; },

@@ -79,10 +79,17 @@ drawing stays smooth however much you paint.
 ### Buttons and controls
 
 - **K** — number of clusters, offered as **both a slider and a typed box** — drag to scrub, or type an exact value;
-  the two always show the same number. **No fixed ceiling**: type any integer ≥ 1. The slider has to declare a top
-  end, so the box is the authority: the slider's range stretches to whatever you type and never shrinks back, which
-  means it can never cap you. With no centroids yet it resets; with
-  centroids placed it keeps them and only trims those above K.
+  the two always show the same number. The **slider runs from 1 to N**, the live data-point count, so dragging it
+  can never ask for more clusters than you have **distinct** points — the control itself is the theory rule, and it never
+  stretches past N for any reason (999 data points → the track ends at 999; 696 → it ends at 696). The **box has
+  no ceiling**: type any integer ≥ 1, and a K above N still sticks (flagged red, with *Initialize* refusing)
+  rather than being silently clamped — the slider thumb simply pins at the top end while the box keeps the truth.
+  With no centroids yet it resets; with centroids placed it keeps them and only trims those above K.
+  The note underneath grades the choice as well as checking it: **red** when it cannot run (K above the number of
+  distinct positions, or n below K — the buttons go with it), **amber** when it runs but means little
+  (`K = N`, or under two points per cluster), **grey** for a gentle `K > 2√N` nudge, and a plain green tick
+  otherwise. When some points share a coordinate the note says so — `K ≤ N ✓ (N = 1936, distinct = 1930)` —
+  because identical points can never be split into different clusters.
   The one rule k-means imposes is **1 ≤ K ≤ N** — you cannot ask for more clusters than you have data points —
   so the note under the box reports the state live (`K ≤ N ✓`, `K > N — needs 4 more points`, `K = N → SSE 0`),
   the field turns red when it is impossible, and *Initialize* / *Best of 10* refuse to run and tell you why.
@@ -90,10 +97,16 @@ drawing stays smooth however much you paint.
   K = 1 gives the global mean; K = N puts every point on its own centroid and drives SSE to 0 — which is exactly why a
   low SSE on its own never proves a good K. Past the eight named clusters, colours keep going on a golden-angle hue
   sweep and names continue `Cluster I`, `Cluster J` … `Cluster AA`; the legend lists 24 and then says "+n more".
-- **n** — how many points *New random data* generates, also as **both a slider and a typed box**. **No fixed ceiling**:
-  any integer ≥ 1 (the presets round, so the final count can differ by a point or two); the slider reaches 1000 out of
-  the box and stretches further the moment you type a bigger number. Drawing on the canvas adds more on top, also
-  without a limit.
+- **n** — how many points *New random data* generates, also as **both a slider and a typed box**, with the
+  **🎲 New random data button sitting right underneath** so the value and the button that uses it stay together.
+  Every preset generates **exactly** n points — not "about n" — because n is what N becomes and the K ≤ N rule has to
+  answer for the number you actually typed. The note under it tells you in advance whether the pair works
+  (`n ≥ K ✓ · generates exactly 150 points`, or `n < K — …`). **No fixed ceiling**: any integer ≥ 1; the slider
+  reaches 1000 out of the box and stretches further the moment you type a bigger number, and it always reaches at
+  least as far as the K slider so you can never get stuck. **K and n hold each other in range:** raise K past n and
+  n comes up with it; drop n below K and K comes down. That happens when you *commit* a value — a slider step, or
+  pressing Enter / clicking away from the box — never while you are still typing. Drawing on the canvas adds
+  more on top, also without a limit.
 - **Speed** — Slow / Normal / Fast / Instant animation.
 - **Dataset preset** — each one demonstrates a documented K-means limitation (table below).
 - **Initial centroid method** — `Random` or `Farthest-first`.
@@ -163,12 +176,12 @@ The suite **pulls the real `<script>` out of `index.html`** and runs it against 
 | File | Tests | Covers |
 |---|---:|---|
 | `tests/view.test.mjs` | 36 | coordinate round-trips, zoom limits, unclamped panning on the infinite canvas, data staying put under pan/zoom |
-| `tests/algorithm.test.mjs` | 50 | assign/update/init/best-of-N/presets/animation, and SSE falling every round |
+| `tests/algorithm.test.mjs` | 56 | assign/update/init/best-of-N/presets/animation, SSE falling every round, and empty-cluster repair |
 | `tests/tools.test.mjs` | 61 | brush, eraser, placing–dragging–deleting centroids, the K ceiling, the busy lock |
-| `tests/kn.test.mjs` | 29 | K and n have no fixed maximum, the 1 ≤ K ≤ N rule, K = 1 / K = N boundaries, duplicate-point warning, colours+names for any K, and the paired slider+box controls |
+| `tests/kn.test.mjs` | 59 | K and n have no fixed maximum, the 1 ≤ K ≤ distinct(N) and n ≥ K rules, K = 1 / K = N boundaries, colours+names for any K, the paired slider+box controls, the K track pinned to N, exact-n generation, the K ↔ n clamp, and the four warning bands |
 | `tests/stroke.test.mjs` | 53 | pen one-press-one-point, spray cadence, stroke continuity, dab spacing, stabilizer |
 | `tests/render.test.mjs` | 41 | brush ring, highlight rings, grid vs zoom, SSE chart, drawing huge point counts |
-| **Total** | **270** | coverage: line **97.8%** · branch **97.2%** · funcs **94.7%** |
+| **Total** | **306** | coverage: line **98.4%** · branch **97.1%** · funcs **96.3%** |
 
 A further 34 checks run in a real headless browser (`tests/browser.smoke.mjs`) using real mouse and keyboard input,
 asserting only through the DOM:
