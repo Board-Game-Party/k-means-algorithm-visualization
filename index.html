@@ -347,10 +347,16 @@ function hslHex(h, s, l){
   return "#" + f(0) + f(8) + f(4);
 }
 /** Colour for cluster i — the 8 hand-picked hues first, then a golden-angle sweep so any K stays distinguishable */
+/* PERF: hslHex builds four strings per call and render() asks for a colour once per point per frame,
+   so past K = 8 every repaint was allocating garbage. The sweep is a pure function of i, so memoising
+   it can never go stale. */
+const _colCache = [];
 function colorFor(i){
   if(i < 0) return GREY;
   if(i < COLORS.length) return COLORS[i];
-  return hslHex(((i - COLORS.length) * 137.508) % 360, 0.68, 0.63);
+  let c = _colCache[i];
+  if(c === undefined) c = _colCache[i] = hslHex(((i - COLORS.length) * 137.508) % 360, 0.68, 0.63);
+  return c;
 }
 /** Name for cluster i — A…H from NAMES, then I, J … Z, AA, AB … (spreadsheet style, unbounded) */
 function nameFor(i){
@@ -370,13 +376,24 @@ function readInt(id, dflt, min = 1){
     because syncBounds() runs every frame and the point count is unbounded; every path that changes the
     data either replaces the array (generate / clear / erase / tests) or changes its length (pen / brush),
     and nothing ever mutates a point's x/y in place. */
-let dpCache = { arr: null, len: -1, val: 0 };
+let dpCache = { arr: null, len: -1, val: 0, seen: null };
+const dpKey = p => Math.round(p.x * 1e4) + "|" + Math.round(p.y * 1e4);
 function distinctPoints(pts = S.points){
-  const live = pts === S.points;
-  if(live && dpCache.arr === pts && dpCache.len === pts.length) return dpCache.val;
-  const seen = new Set();
-  for(const p of pts) seen.add(p.x.toFixed(4) + "|" + p.y.toFixed(4));
-  if(live) dpCache = { arr: pts, len: pts.length, val: seen.size };
+  if(pts !== S.points){                       // a one-off query on someone else's array — never cached
+    const seen = new Set();
+    for(const p of pts) seen.add(dpKey(p));
+    return seen.size;
+  }
+  if(dpCache.arr === pts && dpCache.len === pts.length) return dpCache.val;
+  /* PERF: memoising on (array, length) looked safe but thrashed exactly where it mattered — the brush
+     appends points on every pointer event, so the length changed every time and a full O(N) re-hash ran
+     per event. That was the single largest cost while drawing. Points are only ever APPENDED
+     (pen / brush / spray) or the whole array is replaced (generate / clear / erase), so a grown array is
+     extended in place and only a shrink or a swap pays for a rebuild. */
+  let seen = dpCache.seen, from = dpCache.len;
+  if(dpCache.arr !== pts || from < 0 || pts.length < from){ seen = new Set(); from = 0; }
+  for(let i = from; i < pts.length; i++) seen.add(dpKey(pts[i]));
+  dpCache = { arr: pts, len: pts.length, val: seen.size, seen };
   return seen.size;
 }
 /** How many clusters the current data can actually support — distinct positions, not the raw count */
@@ -402,7 +419,18 @@ const S = {
 window.S = S;   // expose state for debugging / automated verification
 
 /* ======================= DOM ======================= */
-const $ = id => document.getElementById(id);
+/* PERF: sync() touches ~25 elements and used to run on every pointermove, so every one of those was a
+   fresh getElementById. The ids are static for the life of the page, so the lookup is memoised once. */
+const _els = new Map();
+const $ = id => {
+  let e = _els.get(id);
+  if(e === undefined){ e = document.getElementById(id); _els.set(id, e); }
+  return e;
+};
+/* PERF: writing textContent/value/max unconditionally dirties layout even when the string is identical.
+   These guards make a no-op sync() genuinely free. */
+const setText = (el, v) => { if(el._t !== v){ el._t = v; el.textContent = v; } };
+const setAttr = (el, k, v) => { const c = "_a" + k; if(el[c] !== v){ el[c] = v; el[k] = v; } };
 const canvas = $("canvas"), ctx = canvas.getContext("2d");
 const chart  = $("chart"),  cctx = chart.getContext("2d");
 let cw = 0, ch = 0, plotW = 0, plotH = 0, unit = 1, ox = 0, oy = 0;
@@ -422,6 +450,7 @@ const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
 /* Mirror the view state onto the DOM so external tests can read it without touching internals */
 function markView(){
   canvas.dataset.view = V.z.toFixed(3) + "," + V.px.toFixed(1) + "," + V.py.toFixed(1);
+  invalidate();                        // the view moved, so the canvas needs a repaint
 }
 /* Zoom while keeping the point under the cursor pinned in place */
 function zoomAt(mx, my, factor){
@@ -506,7 +535,7 @@ function tweenView(to){
     V.z  = from.z  + (to.z  - from.z)  * e;
     V.px = from.px + (to.px - from.px) * e;
     V.py = from.py + (to.py - from.py) * e;
-    syncView(); render();
+    syncView(); invalidate();          // PERF: was render() - a second full repaint on top of the loop's own
     if(t < 1) requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
@@ -553,6 +582,8 @@ function resize(){
   chart.width  = Math.max(1, Math.round(cr.width * dpr));
   chart.height = Math.max(1, Math.round(cr.height * dpr));
   cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  canvasRect = null;                // the cached pointer-mapping rect is stale now
+  lastChartSig = null;              // the chart bitmap was just cleared, so let sync() repaint it
 }
 
 /* ======================= DATA GENERATION ======================= */
@@ -589,7 +620,8 @@ function spreadCenters(g){
     let bp = null, bd = -1;
     for(let t = 0; t < 300; t++){
       const p = { x: rnd(LX * 0.16, LX * 0.84), y: rnd(16, 84) };
-      const dm = best.length ? Math.min(...best.map(b => d2(b, p))) : Infinity;
+      let dm = Infinity;                       // PERF: was Math.min(...best.map(...)) — an array per candidate
+      for(let q = 0; q < best.length; q++){ const d = d2(best[q], p); if(d < dm) dm = d; }
       if(dm > bd){ bd = dm; bp = p; }
     }
     best.push(bp);
@@ -642,14 +674,19 @@ function generate(){
 function pickInitial(points, k, method){
   k = Math.max(KMIN, Math.min(k, points.length));   // K ≤ N — never spin looking for more points than exist
   if(method === "farthest"){
-    const chosen = [points[Math.floor(Math.random() * points.length)]];
+    /* PERF: this rebuilt the distance to every already-chosen centroid for every point, allocating a
+       throwaway array per point — O(K^2 . N) with K.N allocations, and the reason Initialize stalled on
+       a big canvas. Carrying a running nearest-distance per point makes it O(K . N) with no allocation.
+       The scan order and the strict > tie-break are unchanged, so it picks exactly the same centroids. */
+    const first = points[Math.floor(Math.random() * points.length)];
+    const chosen = [first], near = new Float64Array(points.length);
+    for(let j = 0; j < points.length; j++) near[j] = d2(first, points[j]);
     while(chosen.length < k){
-      let bp = points[0], bd = -1;
-      for(const p of points){
-        const dm = Math.min(...chosen.map(c => d2(c, p)));
-        if(dm > bd){ bd = dm; bp = p; }
-      }
-      chosen.push(bp);
+      let bi = 0, bd = -1;
+      for(let j = 0; j < points.length; j++) if(near[j] > bd){ bd = near[j]; bi = j; }
+      const p = points[bi];
+      chosen.push(p);
+      for(let j = 0; j < points.length; j++){ const d = d2(p, points[j]); if(d < near[j]) near[j] = d; }
     }
     return chosen.map(p => ({ x: p.x, y: p.y }));
   }
@@ -660,10 +697,12 @@ function pickInitial(points, k, method){
 
 function assignAll(points, cents){
   let sse = 0, changed = 0;
-  for(const p of points){
+  const K = cents.length;                       // PERF: the innermost loop of the whole app (N x K per step)
+  for(let j = 0; j < points.length; j++){
+    const p = points[j];
     let bi = 0, bd = Infinity;
-    for(let i = 0; i < cents.length; i++){
-      const d = d2(p, cents[i]);
+    for(let i = 0; i < K; i++){
+      const c = cents[i], dx = p.x - c.x, dy = p.y - c.y, d = dx * dx + dy * dy;
       if(d < bd){ bd = d; bi = i; }
     }
     if(p.c !== bi) changed++;
@@ -716,7 +755,11 @@ function silentRun(src, k, method, maxIt = 100){
   for(let it = 0; it < maxIt; it++){
     sse = assignAll(pts, cents).sse;
     const nc = meanUpdate(pts, cents);
-    const mv = Math.max(...nc.map((c, i) => Math.hypot(c.x - cents[i].x, c.y - cents[i].y)));
+    let mv = 0;                                 // PERF: a spread over K args allocates, and throws outright past ~65k
+    for(let i = 0; i < nc.length; i++){
+      const d = Math.hypot(nc[i].x - cents[i].x, nc[i].y - cents[i].y);
+      if(d > mv) mv = d;
+    }
     cents = nc;
     if(mv < EPS){ sse = assignAll(pts, cents).sse; break; }
   }
@@ -758,7 +801,12 @@ function doUpdate(){
   const nc = meanUpdate(S.points, S.centroids);
   const fixed = lastEmptyFixed;
   S.emptyFixed += fixed;
-  S.maxMove = Math.max(...nc.map((c, i) => Math.hypot(c.x - S.centroids[i].x, c.y - S.centroids[i].y)));
+  let mv = 0;                                   // PERF: same spread, same reason — see silentRun
+  for(let i = 0; i < nc.length; i++){
+    const d = Math.hypot(nc[i].x - S.centroids[i].x, nc[i].y - S.centroids[i].y);
+    if(d > mv) mv = d;
+  }
+  S.maxMove = mv;
   S.iter++;
   const done = S.maxMove < EPS;
   const p = animateTo(nc).then(() => {
@@ -838,6 +886,7 @@ function animateTo(target){
         c.ax = from[i].x + (target[i].x - from[i].x) * e;
         c.ay = from[i].y + (target[i].y - from[i].y) * e;
       });
+      invalidate();                    // the centroids moved this frame
       if(t < 1) requestAnimationFrame(tick);
       else {
         S.centroids.forEach((c, i) => { c.x = c.ax = target[i].x; c.y = c.ay = target[i].y; });
@@ -848,6 +897,9 @@ function animateTo(target){
 }
 
 /* ======================= RENDER ======================= */
+const TAU = Math.PI * 2;
+/* Reused across frames so the hot loop never allocates - see the note in render() */
+const bucket = new Map();
 function drawGrid(){
   ctx.clearRect(0, 0, cw, ch);
   ctx.fillStyle = "#080d1c"; ctx.fillRect(0, 0, cw, ch);
@@ -859,23 +911,26 @@ function drawGrid(){
 
   ctx.strokeStyle = "rgba(255,255,255,.045)"; ctx.lineWidth = 1;
   const step = V.z >= 3 ? 2 : V.z >= 1.6 ? 5 : 10;
-  
+
   const la = toLogical(ox, oy + plotH);
   const lb = toLogical(ox + plotW, oy);
-  
+  /* PERF: every grid line used to be its own beginPath/stroke pair plus a throwaway {x,y} from px().
+     One path for the lot is a single rasterisation instead of ~60, and the transform is inlined. */
+  const gs = sc(), gbx = ox + V.px, gby = oy + plotH + V.py;
+  ctx.beginPath();
   const startX = Math.floor(la.x / step) * step;
   const endX = Math.ceil(lb.x / step) * step;
   for(let gx = startX; gx <= endX; gx += step){
-    const x = px({ x: gx, y: 0 }).x;
-    ctx.beginPath(); ctx.moveTo(x, oy + plotH); ctx.lineTo(x, oy); ctx.stroke();
+    const x = gbx + gx * gs;
+    ctx.moveTo(x, oy + plotH); ctx.lineTo(x, oy);
   }
-  
   const startY = Math.floor(la.y / step) * step;
   const endY = Math.ceil(lb.y / step) * step;
   for(let gy = startY; gy <= endY; gy += step){
-    const y = px({ x: 0, y: gy }).y;
-    ctx.beginPath(); ctx.moveTo(ox, y); ctx.lineTo(ox + plotW, y); ctx.stroke();
+    const y = gby - gy * gs;
+    ctx.moveTo(ox, y); ctx.lineTo(ox + plotW, y);
   }
+  ctx.stroke();
   ctx.restore();
 
   ctx.fillStyle = "#54628a"; ctx.font = "10px 'JetBrains Mono', monospace";
@@ -888,21 +943,54 @@ function drawGrid(){
   ctx.restore();
 }
 
+/* PERF - THE BIG ONE. render() used to end with an unconditional requestAnimationFrame(render), so the
+   page repainted the whole canvas 60 times a second forever: idle tab, no animation, nobody touching it.
+   That is the resource-drain half of feedback 8 - a pegged core, a spinning fan and a flat battery for
+   nothing. Painting is now demand-driven: invalidate() marks the canvas dirty and wakes the loop, and the
+   loop puts itself back to sleep the moment there is nothing left to draw. Every site that changes
+   something visible calls invalidate() - chiefly sync() and markView(), which between them already gate
+   every state and view change - and the loop keeps itself turning unaided while an animation or a drag
+   is live, so a missed invalidate mid-interaction cannot strand a stale frame. */
+let dirty = true, rafId = 0;
+function invalidate(){
+  dirty = true;
+  if(!rafId) rafId = requestAnimationFrame(frame);
+}
+function frame(){
+  rafId = 0;
+  if(dirty){ dirty = false; render(); }
+  if(busy() || mode) invalidate();     // a running animation or a live drag keeps the loop turning
+}
+
+let paints = 0;
 function render(){
   if(cw === 0) resize();
+  /* Mirror the repaint count onto the DOM, the same way markView() mirrors the view: it is the only way
+     a real-browser test can show that an idle page now paints ZERO frames where it used to paint 60 a
+     second. One attribute write on a frame we were drawing anyway. */
+  canvas.dataset.paints = ++paints;
   drawGrid();
 
   ctx.save();
   ctx.beginPath(); ctx.rect(ox, oy, plotW, plotH); ctx.clip();   // everything in data space is clipped to the viewport
 
   const N = S.points.length;
+  /* PERF: two px() objects AND a fresh "#rrggbb33" string per point per frame. The transform is inlined
+     and the faded colours are built once per cluster instead of once per point. */
+  const s = sc(), bx = ox + V.px, by = oy + plotH + V.py;
   if($("cbLines").checked && S.centroids.length && N <= LINEMAX){
     ctx.lineWidth = 1;
-    for(const p of S.points){
-      if(p.c < 0 || !S.centroids[p.c]) continue;
-      const a = px(p), b = px({ x: S.centroids[p.c].ax, y: S.centroids[p.c].ay });
-      ctx.strokeStyle = colorFor(p.c) + "33";
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    const faded = S.centroids.map((c, i) => colorFor(i) + "33");
+    for(let j = 0; j < N; j++){
+      const p = S.points[j];
+      if(p.c < 0) continue;
+      const c = S.centroids[p.c];
+      if(!c) continue;
+      ctx.strokeStyle = faded[p.c];
+      ctx.beginPath();
+      ctx.moveTo(bx + p.x * s, by - p.y * s);
+      ctx.lineTo(bx + c.ax * s, by - c.ay * s);
+      ctx.stroke();
     }
   }
 
@@ -910,20 +998,32 @@ function render(){
      — that is what makes an unlimited number of points affordable per frame */
   const R = N > 12000 ? 2 : N > 4000 ? 2.6 : N > 1500 ? 3.2 : 4;
   const outline = N <= LINEMAX;
-  const byCol = new Map();
-  for(const p of S.points){
-    const a = px(p);
-    if(a.x < ox - R || a.x > ox + plotW + R || a.y < oy - R || a.y > oy + plotH + R) continue;
+  /* PERF: px() minted a fresh {x,y} for every point, and the per-colour buckets were brand-new arrays of
+     those objects, every frame. At 20k points that is over a million short-lived objects a second, and
+     the GC pauses are exactly the stutter you feel while drawing. The buckets are module-level and reused
+     - only their fill level is reset - so a steady-state frame allocates nothing at all. */
+  const x0 = ox - R, x1 = ox + plotW + R, y0 = oy - R, y1 = oy + plotH + R;
+  /* Reusing the buffers must not turn into hoarding them: if K has come down, drop the whole cache
+     rather than keeping a full-size xs/ys pair for every colour the page has ever shown. */
+  if(bucket.size > S.centroids.length + 2) bucket.clear();
+  else for(const b of bucket.values()) b.n = 0;
+  for(let j = 0; j < N; j++){
+    const p = S.points[j];
+    const sx = bx + p.x * s;
+    if(sx < x0 || sx > x1) continue;
+    const sy = by - p.y * s;
+    if(sy < y0 || sy > y1) continue;
     const col = colorFor(p.c);
-    let list = byCol.get(col);
-    if(!list){ list = []; byCol.set(col, list); }
-    list.push(a);
+    let b = bucket.get(col);
+    if(b === undefined){ b = { xs: [], ys: [], n: 0 }; bucket.set(col, b); }
+    b.xs[b.n] = sx; b.ys[b.n] = sy; b.n++;
   }
   const focusCol = S.focus >= 0 ? colorFor(S.focus) : null;   // focused cluster stays solid, the rest fade
-  for(const [col, list] of byCol){
+  for(const [col, b] of bucket){
+    if(!b.n) continue;                                        // a colour with nothing on screen draws nothing
     ctx.globalAlpha = focusCol && col !== focusCol ? DIMALPHA : 1;
     ctx.beginPath();
-    for(const a of list){ ctx.moveTo(a.x + R, a.y); ctx.arc(a.x, a.y, R, 0, Math.PI * 2); }
+    for(let i = 0; i < b.n; i++){ ctx.moveTo(b.xs[i] + R, b.ys[i]); ctx.arc(b.xs[i], b.ys[i], R, 0, TAU); }
     ctx.fillStyle = col; ctx.fill();
     if(outline){ ctx.lineWidth = 1; ctx.strokeStyle = "rgba(8,13,28,.85)"; ctx.stroke(); }
   }
@@ -981,7 +1081,6 @@ function render(){
   }
 
   ctx.restore();
-  requestAnimationFrame(render);
 }
 
 function drawChart(){
@@ -1012,7 +1111,15 @@ function drawChart(){
     `${H.length} samples · SSE <span class="mono">${H[0].toFixed(1)} → ${H[H.length - 1].toFixed(1)}</span> (down ${drop}%)`;
 }
 
-/* ======================= UI SYNC ======================= */
+/* ======================= UI SYNC =======================
+   PERF: sync() runs after every state change, and while the brush is down that means on every single
+   pointermove. It used to re-query the DOM, rebuild the legend's innerHTML and repaint the SSE chart
+   each time. The queries below are hoisted (both node lists are static markup), and the expensive
+   writes are guarded so an unchanged value costs a string compare instead of a layout. */
+const PCLINES = document.querySelectorAll(".pc");
+const TOOLBTNS = document.querySelectorAll(".tool");
+let lastLegend = null, lastChartSig = null;
+
 const PHASE = {
   idle:   { name:"Waiting for data", dot:"bg-slate-500", line:0,
             title:"Not started",
@@ -1042,48 +1149,51 @@ function currentPhaseKey(){
 
 function sync(){
   const info = PHASE[currentPhaseKey()];
-  $("phaseName").textContent = info.name;
+  setText($("phaseName"), info.name);
   $("phaseDot").className = "w-2.5 h-2.5 rounded-full " + info.dot;
-  $("infoTitle").textContent = info.title;
-  $("infoDesc").textContent  = info.desc;
+  setText($("infoTitle"), info.title);
+  setText($("infoDesc"), info.desc);
   const m = $("infoMath");
-  if(info.math){ m.textContent = info.math; m.classList.remove("hidden"); }
+  if(info.math){ setText(m, info.math); m.classList.remove("hidden"); }
   else m.classList.add("hidden");
 
-  document.querySelectorAll(".pc").forEach(el => {
+  PCLINES.forEach(el => {
     const n = +el.dataset.line;
     const on = n === info.line || (info.line >= 3 && info.line <= 4 && n === 2);
-    el.className = "pc " + (on ? "on" : "off");
+    const cls = "pc " + (on ? "on" : "off");
+    if(el.className !== cls) el.className = cls;
   });
 
-  $("stCent").textContent = S.centroids.length + " / " + S.k;
-  document.querySelectorAll(".tool").forEach(b => {
+  setText($("stCent"), S.centroids.length + " / " + S.k);
+  const noEdit = busy();
+  TOOLBTNS.forEach(b => {
     b.classList.toggle("on", b.dataset.tool === S.tool);
-    b.disabled = busy() && b.dataset.tool !== "hand";        // no editing while running, but panning stays available
+    const off = noEdit && b.dataset.tool !== "hand";         // no editing while running, but panning stays available
+    if(b.disabled !== off) b.disabled = off;
   });
-  $("lnHint").textContent = S.points.length > LINEMAX ? " · auto-off, too many points" : "";
+  setText($("lnHint"), S.points.length > LINEMAX ? " · auto-off, too many points" : "");
   const painter = S.tool === "brush" || S.tool === "eraser" || S.tool === "spray";
   $("brushOpts").style.display = painter ? "" : "none";
   $("randOpts").style.display  = S.tool === "random" ? "" : "none";   // n is the 🎲 tool's own option
   $("densOpt").style.display = S.tool === "eraser" ? "none" : "";   // flow means nothing for the eraser
   $("stabOpt").style.display = S.tool === "spray" ? "none" : "";    // the spray does not use the stabilizer
-  $("toolHint").textContent = TOOLS[S.tool].hint;
+  setText($("toolHint"), TOOLS[S.tool].hint);
   canvas.style.cursor = mode === "pan" ? "grabbing" : TOOLS[S.tool].cursor;
 
-  $("stIter").textContent = S.iter;
-  $("stN").textContent    = S.points.length;
-  $("stSSE").textContent  = S.sse == null ? "—" : S.sse.toFixed(2);
-  $("stMove").textContent = S.maxMove == null ? "—" : S.maxMove.toFixed(4);
+  setText($("stIter"), String(S.iter));
+  setText($("stN"), String(S.points.length));
+  setText($("stSSE"), S.sse == null ? "—" : S.sse.toFixed(2));
+  setText($("stMove"), S.maxMove == null ? "—" : S.maxMove.toFixed(4));
 
   syncBounds();
 
-  const isBusy = busy();
-  $("bInit").disabled = isBusy || !kFeasible();
+  const isBusy = busy(), feasible = kFeasible();
+  $("bInit").disabled = isBusy || !feasible;
   $("bStep").disabled = isBusy || S.points.length === 0 || S.phase === "done";
-  $("bBest").disabled = isBusy || !kFeasible();
+  $("bBest").disabled = isBusy || !feasible;
   $("bGen").disabled  = isBusy || readInt("inN", 150) < S.k;   // Task 4: n ≥ K or there is nothing to generate
   $("bClr").disabled  = isBusy;
-  $("bRun").textContent = S.running ? "⏸ Stop" : "▶️ Run to Completion";
+  setText($("bRun"), S.running ? "⏸ Stop" : "▶️ Run to Completion");
   $("bRun").disabled = S.points.length === 0 || (S.phase === "done" && !S.running);
 
   if(S.focus >= S.centroids.length) S.focus = -1;   // K lowered, centroid deleted, data cleared → focus drops
@@ -1103,12 +1213,25 @@ function sync(){
     }
     if(S.centroids.length > shown)
       html += `<span class="opacity-70">+${S.centroids.length - shown} more clusters</span>`;
-    $("legend").innerHTML = html;
+    setLegend(html);
   } else {
-    $("legend").innerHTML = `<span class="opacity-70">no centroids yet</span>`;
+    setLegend(`<span class="opacity-70">no centroids yet</span>`);
   }
 
-  drawChart();
+  /* PERF: drawChart() calls getBoundingClientRect() (a forced synchronous layout) and repaints the whole
+     curve. The curve can only change when the history does, and drawing points never touches the history,
+     so this used to be pure waste on every pointer event. resize() still redraws unconditionally. */
+  const sig = S.history.length + ":" + (S.history.length ? S.history[S.history.length - 1] : "");
+  if(sig !== lastChartSig){ lastChartSig = sig; drawChart(); }
+
+  invalidate();                     // something changed — ask the render loop for a frame
+}
+/* PERF: assigning innerHTML reparses the markup and rebuilds every child node. While drawing, the new
+   points are unassigned so the counts do not move and the markup is identical every time. */
+function setLegend(html){
+  if(html === lastLegend) return;
+  lastLegend = html;
+  $("legend").innerHTML = html;
 }
 
 /* K and n have no fixed ceiling — the UI reports whether the current pair is runnable (K ≤ distinct N)
@@ -1119,8 +1242,13 @@ function syncBounds(){
   const n = readInt("inN", 150);
   /* mirror the typed values onto the sliders — max first, so the value is never clamped on the way in */
   const kMax = kSlideMax();
-  $("inKR").max = kMax; $("inKR").value = Math.min(k, kMax);   // a K past the cap pins the thumb; the box keeps the truth
-  $("inNR").max = nSlideMax(); $("inNR").value = n;
+  /* PERF: the max attributes are guarded (an identical attribute write still costs a re-layout of the
+     track); the values are written straight through, because those are the authority the tests and the
+     user read back and a stale guard must never be able to hold one back. */
+  setAttr($("inKR"), "max", String(kMax));
+  $("inKR").value = Math.min(k, kMax);                         // a K past the cap pins the thumb; the box keeps the truth
+  setAttr($("inNR"), "max", String(nSlideMax()));
+  $("inNR").value = n;
 
   /* Task 5: the bound is the number of DISTINCT positions; say so when it differs from the raw count */
   const bad = N > 0 && k > dp;
@@ -1348,7 +1476,14 @@ function trimCentroids(n){
 }
 
 /* ======================= CANVAS EVENTS ======================= */
-const evPos = ev => { const r = canvas.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; };
+/* PERF: getBoundingClientRect() forces a synchronous layout, and this ran on EVERY pointermove — a
+   guaranteed reflow per event while drawing, on top of everything the event handler then did. The canvas
+   only moves when the page resizes or scrolls, so the rect is cached and dropped on exactly those. */
+let canvasRect = null;
+const evPos = ev => {
+  const r = canvasRect || (canvasRect = canvas.getBoundingClientRect());
+  return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+};
 const BUSYMSG = "⏸ The algorithm is running — stop it or wait for convergence before editing the canvas";
 
 function onDown(e){
@@ -1382,6 +1517,7 @@ function onDown(e){
 function onMove(e){
   const m = evPos(e);
   hoverPt = m;
+  invalidate();                     // the brush ring follows the cursor, so every move needs a frame
   if(mode === "pan"){
     V.px = panFrom.px + (m.x - panFrom.mx);
     V.py = panFrom.py + (m.y - panFrom.my);
@@ -1415,6 +1551,7 @@ function onMove(e){
 }
 
 function onUp(){
+  invalidate();                     // the ring/leash state changes when the stroke ends
   if(mode === "drag" && S.centroids[dragI]){
     if(dragMoved > 0.05) afterCentroidEdit("Moved " + nameFor(dragI) + " by hand → reassigned from where you dropped it (iteration count restarts)");
     else { say("Selected " + nameFor(dragI) + " — drag to move it, or press Delete to remove it"); sync(); }
@@ -1471,7 +1608,7 @@ function onKey(e){
 
 canvas.addEventListener("pointerdown", onDown);
 canvas.addEventListener("pointermove", onMove);
-canvas.addEventListener("pointerleave", () => { if(!mode) hoverPt = null; });
+canvas.addEventListener("pointerleave", () => { if(!mode) hoverPt = null; invalidate(); });
 canvas.addEventListener("wheel", onWheel, { passive: false });
 canvas.addEventListener("contextmenu", onContext);
 window.addEventListener("pointerup", onUp);
@@ -1481,9 +1618,13 @@ window.addEventListener("keyup", e => {
 });
 
 document.querySelectorAll(".tool").forEach(b => b.addEventListener("click", () => setTool(b.dataset.tool)));
-$("inBrush").addEventListener("input", e => { $("lblBrush").textContent = e.target.value; });
-$("inDens").addEventListener("input",  e => { $("lblDens").textContent  = e.target.value; });
-$("inStab").addEventListener("input",  e => { $("lblStab").textContent  = e.target.value + "%"; });
+/* These three change the on-canvas brush ring, and the checkboxes change what render() draws — with the
+   loop demand-driven they have to say so, where the old always-on chain picked it up by accident. */
+$("inBrush").addEventListener("input", e => { setText($("lblBrush"), e.target.value); invalidate(); });
+$("inDens").addEventListener("input",  e => { setText($("lblDens"),  e.target.value); invalidate(); });
+$("inStab").addEventListener("input",  e => { setText($("lblStab"),  e.target.value + "%"); invalidate(); });
+$("cbLines").addEventListener("change", invalidate);
+$("cbTrail").addEventListener("change", invalidate);
 $("bZoomIn").onclick  = () => zoomAt(cw / 2, ch / 2, 1.25);
 $("bZoomOut").onclick = () => zoomAt(cw / 2, ch / 2, 1 / 1.25);
 $("bZoomRst").onclick = () => { resetView(); say("View reset to 100%"); };
@@ -1567,8 +1708,9 @@ $("bRun").onclick   = runToCompletion;
 $("bBest").onclick  = () => bestOfN(10);
 $("bReset").onclick = () => { hardReset(); say("Reset — the data points stay; press Initialize Centroids to start again (randomness may give a different answer)"); };
 
-window.addEventListener("resize", () => { resize(); drawChart(); });
-new ResizeObserver(() => { resize(); drawChart(); }).observe(canvas);
+window.addEventListener("resize", () => { resize(); drawChart(); invalidate(); });
+window.addEventListener("scroll", () => { canvasRect = null; }, true);   // the cached rect moved with the page
+new ResizeObserver(() => { resize(); drawChart(); invalidate(); }).observe(canvas);
 
 /* ======================= TEST HOOK ======================= */
 /* Expose internals for the unit tests in tests/ — no effect on normal use */
@@ -1586,7 +1728,9 @@ window.__app = {
   gauss, rnd, clampPt, blob, sdFor, spreadCenters, generate,
   pickInitial, assignAll, meanUpdate, silentRun,
   doInit, doAssign, doUpdate, nextStep, runToCompletion, bestOfN, animateTo, hardReset,
-  currentPhaseKey, sync, say, resize, render, drawGrid, drawChart,
+  currentPhaseKey, sync, say, resize, render, invalidate, frame, drawGrid, drawChart,
+  get dirty(){ return dirty; }, get paints(){ return paints; },
+  get bucketCount(){ return bucket.size; },
   setTool, brushR, busy, sprayAt, eraseAt, dab, erasePx, strokeTo, beginStroke, endStroke,
   sprayPuff, startSpray, sprayLoop, SPRAYMS, penAt, PENMIN,
   stabF, spacing, get stroke(){ return stroke; },

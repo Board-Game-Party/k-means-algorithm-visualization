@@ -139,11 +139,37 @@ describe("canvas rendering", () => {
     assert.equal(app.S.points[0].c, -1);
   });
 
-  test("render always queues the next frame", () => {
-    dom.flushRaf();
+  /* Feedback 8: rendering used to self-schedule forever, repainting an idle canvas 60x a second.
+     The contract is now demand-driven, and this is the test that pins it down. */
+  test("rendering is demand-driven: a finished frame does not schedule another one", () => {
+    up();                                   // make sure no drag is holding the loop open
+    dom.flushRaf(); dom.flushRaf();
     app.render();
-    assert.ok(dom.rafPending() >= 1);
+    assert.equal(dom.rafPending(), 0, "render() must not queue a frame of its own");
+  });
+
+  test("invalidate() wakes the loop, and the loop goes back to sleep when there is nothing to draw", () => {
+    up();
+    dom.flushRaf(); dom.flushRaf();
+    assert.equal(dom.rafPending(), 0, "an idle canvas must not be holding a frame open");
+    app.invalidate();
+    assert.equal(dom.rafPending(), 1, "invalidate() is what asks for a frame");
+    app.invalidate(); app.invalidate();
+    assert.equal(dom.rafPending(), 1, "repeated invalidations coalesce into the one frame");
     dom.flushRaf();
+    assert.equal(dom.rafPending(), 0, "with nothing animating the loop stops itself");
+  });
+
+  test("an animation keeps the loop turning without anyone re-arming it", async () => {
+    setPoints([pt(20, 20), pt(120, 80)]);
+    app.S.animating = true;                 // stand in for a centroid move in flight
+    dom.flushRaf();
+    app.invalidate();
+    dom.flushRaf();
+    assert.ok(dom.rafPending() >= 1, "a live animation must keep the frames coming");
+    app.S.animating = false;
+    dom.flushRaf();
+    assert.equal(dom.rafPending(), 0, "and stop the moment it ends");
   });
 
   test("render works even with no data at all", () => {
