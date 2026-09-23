@@ -54,15 +54,52 @@ Two sources, two different jobs. Never mix them up.
    - **No point cap (feedback 2):** drawing must never stop silently. Any number of points can be added; keep the frame rate usable by batching one path per colour, culling off-view points, shrinking the dot radius as the count grows, and auto-disabling centroid connector lines past 2,000 points (state it in the UI).
    - **K and n are never capped at a fixed number (REQUIRED):**
      - `Clusters (K)` and `Random points (n)` are unbounded integer inputs — `min="1"`, **no `max`**. Any hard-coded ceiling (the old `K ≤ 8`, `n ≤ 400`) is a bug.
-     - The only bound is the theory rule from `paybook/Clustering-k-mean.md` §"Valid range of K": **1 ≤ K ≤ N**. Enforce it at the point of use — `Initialize` and `Best of 10` refuse to run and say why; the control itself never silently rewrites what the user typed.
-     - Report the constraint live next to the K box (`K ≤ N ✓`, `K > N — needs m more points`, `K = N → SSE 0`), and mark the field invalid rather than clamping it.
-     - Duplicate points are the tighter bound: warn when the number of *distinct* positions is below K, but still run.
+     - The bound is the theory rule from `paybook/Clustering-k-mean.md` §"Valid range of K", tightened by
+       feedback 6 to the form that is actually true: **1 ≤ K ≤ distinct(N)**, and **n ≥ K**.
+       `kCap()` is `distinctPoints()`, and `kFeasible()` is measured against it — identical points always
+       share a nearest centroid, so K copies of one coordinate can never be split into K clusters.
+       `Initialize` and `Best of 10` refuse to run and say why.
+     - Report the constraint live next to the K box — `K ≤ N ✓ (N = 1936)`, or `(N = 1936, distinct = 1930)`
+       when the two differ, or `K > distinct positions — needs m more distinct points` — and mark the field
+       invalid.
+     - **K ↔ n are clamped to each other (feedback 6, task 3).** Raising K drags n up; lowering n drags K
+       down, so the pair can never settle in the unusable `n < K` state. This is a deliberate, *narrow*
+       override of feedback 3's "never silently rewrite what the user typed": the clamp fires **only on
+       commit** — a slider step, or `change` (blur / Enter) on a box — and **never per keystroke**, so
+       typing `1672` one digit at a time is not fought. Feedback 3's real guarantee, that the boxes carry
+       no `max` and a half-typed value is never rewritten, is intact.
+       K's relation to **N** is still report-only (see the feedback 5 rule): only K ↔ **n** is clamped.
      - **Both a slider and a typed box (feedback 4).** Each of K and n is offered twice: an uncapped
        `<input type="number">` and an `<input type="range">` scrubber beside it, kept in sync both ways and
-       running through one code path. A range input must declare a `max`, so the box is the authority and the
-       slider's top end is adaptive — it starts at a comfortable default (`KSLIDE` / `NSLIDE`) and **ratchets up**
-       to whatever was typed. It never shrinks (so the track cannot rescale under a thumb mid-drag) and it can
-       never clamp a typed value.
+       running through one code path. A range input must declare a `max`, so **the box is the authority** — it
+       is the half that is never capped and never rewritten. The two tracks are bounded differently, on purpose:
+       `n` has no natural ceiling, so its track ratchets up to whatever was typed and never shrinks; `K` does
+       have one (N), so its track stops there — see the feedback 5 rule below.
+     - **The controls must embody 1 ≤ K ≤ N, not just report it (feedback 5).** The K slider's top end
+       **is exactly N**, the live data-point count, and it never stretches past it for any reason:
+       *"Data point = 999 → slider bar ต้องลากได้แค่ 999 · Data point = 696 → slider bar ≤ 696
+       เราจะลากเกินไม่ได้."* Dragging simply cannot reach an infeasible K.
+       Typing still wins for the **value** (feedback 3): a K above N stays in the box, turns it red and
+       blocks `Initialize` — the thumb just pins at the top end, because a thumb position past N would
+       depict a clustering the theory does not allow. `kSlideMax()` is `S.points.length || KSLIDE` and
+       depends on nothing else, so the track cannot rescale under a thumb mid-drag either.
+     - **`n` is what `N` will become, so it must be exact (feedback 5).** `New random data` generates
+       **exactly** n points for every preset — largest-remainder `split()`, never `Math.round(n / g)` per
+       blob. "Roughly n" silently changes whether a given K is legal. The n control also reports ahead of
+       time whether the pair will satisfy the rule (`n ≥ K ✓ · generates exactly n points` / `n < K — …`).
+     - **`n` and its button live together (feedback 5):** `🎲 New random data` sits inside the
+       `Random points (n)` group, between the slider and its note — not adrift in the button row.
+     - **The n track must always reach the K track (feedback 6, task 2).** `nSlideMax() ≥ kSlideMax()`
+       always, or a user stuck at `K > n` could not drag n up to escape — a dead-end control.
+     - **Possible is not the same as meaningful (feedback 6, task 7).** Beyond the hard rule, `kQualityHint()`
+       grades the choice and `#kNote` takes one of four states: red `.warn` + buttons disabled (K > distinct,
+       or n < K) · amber `.caution` (K = N, or under 2 points per cluster) · grey `.hint` (K > 2√N) ·
+       plain green tick otherwise. Only the red band ever disables anything.
+     - **Empty clusters are repaired, not merely survived (feedback 6, task 6).** A cluster can come out
+       empty even when K ≤ N. `meanUpdate()` re-seeds an empty centroid onto the point furthest from its own
+       centroid, claiming each point at most once and only drawing from clusters with ≥ 2 members, so a
+       repair can never empty another cluster. With nothing to spare the centroid holds position. The count
+       is surfaced in the step message and accumulated on `S.emptyFixed`.
      - Cluster colours and names must be generated, not indexed out of a fixed 8-entry table — any K gets a distinct colour (golden-angle hues after the 8 base ones) and a name (A…Z, AA, AB…). The legend lists up to `LEGENDMAX` and then says "+n more".
    - **Tool state:** one explicit active tool (`Pen` / `Spray` / `Brush` / `Eraser` / `Hand` / `Centroid`) shown in the UI, switchable by click and by keyboard shortcut. Editing tools are disabled (not silently ignored) while an animation is running.
 5. **Technical Constraints:**
@@ -77,7 +114,7 @@ Two sources, two different jobs. Never mix them up.
 
 ---
 
-## ✅ Delivery Status — REVISION 2 DONE (Feedback 1–3 closed)
+## ✅ Delivery Status — REVISION 2 DONE (Feedback 1–6 closed)
 
 | item | value |
 |---|---|
@@ -85,8 +122,8 @@ Two sources, two different jobs. Never mix them up.
 | Docs | `README.md` |
 | Rev 1 | ✅ delivered — verified in headless browser: 0 console errors, 0 failed requests, SSE monotonically decreasing, assignments = nearest centroid, centroids = cluster means |
 | Rev 2 | ✅ delivered — class feedback (`Memory/feedback.md`) implemented, see §4 |
-| Tests | `npm test` → 270 unit tests, **270 pass / 0 fail** · coverage line 97.8% / branch 97.2% / funcs 94.7% |
-| Browser QA | `npm run verify:browser` → 52/52, 0 console errors, 0 failed requests |
+| Tests | `npm test` → 306 unit tests, **306 pass / 0 fail** · coverage line 98.4% / branch 97.1% / funcs 96.3% |
+| Browser QA | `npm run verify:browser` → 84/84, 0 console errors, 0 failed requests |
 
 ### Canvas semantics — settled: the canvas is infinite
 
@@ -140,13 +177,82 @@ instead of calling the vacuous `inWorld`.
 |---|---|---|
 | 1 | "UI use both Slider and Input field" — K and n each get a slider *and* a typed box | ☑ `#inK`+`#inKR`, `#inN`+`#inNR`; `kn.test.mjs` › "K is offered as a number box AND a range slider" + "n is offered as…" |
 | 2 | both halves stay in sync, in both directions | ☑ `kn.test.mjs` › "dragging the K slider drives K, the label and the number box" + "typing in the K box moves the slider" + "dragging the n slider drives n, and generate honours it" |
-| 3 | the slider must not reintroduce the ceiling feedback 3 removed | ☑ `kn.test.mjs` › "the number boxes are still the uncapped ones (feedback 3 is not regressed)" + "the K slider stretches to fit a typed value far above its default top" + "the n slider stretches to a typed n far past its default top" + "a scrubbed K over N is reported, not clamped" |
+| 3 | the slider must not reintroduce the ceiling feedback 3 removed | ☑ `kn.test.mjs` › "the number boxes are still the uncapped ones (feedback 3 is not regressed)" + "a typed K far above the track's top end is kept by the box, not capped" + "the n slider stretches to a typed n far past its default top" + "the far end of the K track is the largest legal K, never an infeasible one" |
 | 4 | scrubbing takes the same code path as typing (trimming, warnings, K ≤ N note) | ☑ `kn.test.mjs` › "scrubbing K down trims the extra centroids, exactly like typing does"; the shared `applyK()` |
-| 5 | the slider range ratchets, never shrinks | ☑ `kn.test.mjs` › "the slider range only ever grows, so the track cannot rescale mid-drag" |
+| 5 | the track never rescales under the thumb mid-drag | ☑ `kn.test.mjs` › "the track depends only on N, so nothing can rescale it under the thumb mid-drag" (K) + "the n slider stretches to a typed n far past its default top" (n still ratchets) |
 
 **Assumption stated (per the ambiguity rule):** "use both" is read as *one value, two controls* — not two
 independent settings. The typed box remains the source of truth precisely because feedback 3 said K and n must
 never be silently rewritten, and only an adaptive, ratcheting slider range can honour that alongside a slider.
+
+### Feedback 5 checklist (`Memory/feedback.md` §Feedback 5)
+
+| # | feedback item | status |
+|---|---|---|
+| 1 | "K value and data point don't relate along theory · K values ≤ N" — the K **control** must embody the bound, not merely report it | ☑ `kn.test.mjs` › "the K slider's top end is N — scrubbing cannot reach an infeasible K" + "the slider top follows N as the data changes" |
+| 2 | …without regressing feedback 3 (a typed value is never rewritten) | ☑ `kn.test.mjs` › "typing a K above N still sticks and is flagged (feedback 3 is not regressed)" — box keeps 57, track still stops at 20, thumb pins |
+| 3 | "random point value and button generate random data point should live closely" — **exactness**: n is what N becomes, so the rule must answer for the number actually typed | ☑ **real bug fixed** — every preset missed n by ±1 (`Math.round(n / g)` per blob). New largest-remainder `split()`. `kn.test.mjs` › "every preset generates EXACTLY n points, not roughly n" (45 combinations) + "split() hands out exactly the total it was given" + "an exact n means the K ≤ N rule answers for the number the user actually typed" |
+| 4 | "…should live closely" — **proximity**: the button belongs with the value it reads | ☑ `🎲 New random data` moved into the `Random points (n)` group; `kn.test.mjs` › "the generate button lives with the n control it reads, not off in the button row" + a browser check on the live DOM |
+| 5 | the n control states the K relationship before you press the button | ☑ `kn.test.mjs` › "the n control says up front whether n will support the current K" |
+| 6 | "slider bar ให้ K กับ data point relate กัน · Data point = 999 → ลากได้แค่ 999 · = 696 → ≤ 696 · **ลากเกินไม่ได้**" | ☑ `kSlideMax()` = `S.points.length \|\| KSLIDE` — the track is N and never stretches past it; `kn.test.mjs` › "the feedback-5 examples hold literally: N = 999 → drag to 999, N = 696 → drag to 696" + "the track is exactly N throughout — before, during and after a typed overshoot" + "the far end of the K track is the largest legal K, never an infeasible one" + browser checks that push the thumb past the end at both 999 and 696 and watch it clamp |
+
+**Both readings implemented.** "Should live closely" is ambiguous between *proximity* (put the button next
+to the box) and *agreement* (the generated count should match the value). Both were true problems — the
+generated N really was off by ±1 — so both are fixed rather than one guessed at.
+
+**Correction made in the second pass.** The first attempt at bullet 1 still let the track *stretch* above N
+when a larger K had been typed (a ratchet carried over from feedback 4), so at N = 696 with K = 1500 typed you
+could still drag past 696. The third bullet ruled that out explicitly, so the ratchet is gone for K: the track
+is `N`, nothing else. Two feedback-4 tests had to be rewritten as well — they still passed, but only because
+their N happened to exceed the typed K, so their names ("the K slider stretches to fit…") described behaviour
+that no longer existed. A test whose name lies is the exact debt cleaned up in §"Canvas semantics"; don't rebuild it.
+
+**Trade-off, stated:** tying the track to N is what makes the control honest to the theory, but it makes
+scrubbing coarse at large N (at N = 999, K = 3 sits ~0.3% along the track). The number box is the precise path
+and is still uncapped. This is the user's explicit instruction, so it stays; if the coarseness ever outweighs
+the bound, a non-linear (log) track would keep both.
+
+### Feedback 6 checklist (`Memory/feedback.md` §"แก้เงื่อนไข n / K …")
+
+Rules restated by this feedback: `1 ≤ K ≤ distinct(N)` and `n ≥ K`.
+
+| task | item | status |
+|---|---|---|
+| 1 | the `n < K` warning is misread as "n must be below K" → lead with the rule | ☑ `Need n ≥ K — n = 1564 is less than K = 1672. Increase n or lower K.` · `kn.test.mjs` › "Task 1 — the n warning reads 'Need n ≥ K', never 'n < K'" (asserts the exact string and that it does **not** open with `n < K`) |
+| 2 | the n track must reach at least as far as the K track | ☑ `nSlideMax() ≥ kSlideMax()` · `kn.test.mjs` › "Task 2 — the n slider's top end is never below the K slider's" + "…dragging n to its far end always reaches at least K" |
+| 3 | clamp K ↔ n, on commit not per keystroke | ☑ `raiseNfor()` / `lowerKfor()` · `kn.test.mjs` › "Task 3 — raising K past n drags n up with it" + "…lowering n below K drags K down with it" + "…the boxes clamp on commit, never mid-keystroke" + "…committing a small n pulls K down to match" + "…n = K exactly is runnable and fills every cluster" |
+| 4 | re-check inside the generator, and disable the button | ☑ `generate()` refuses and says why; `#bGen` disabled while `n < K` · `kn.test.mjs` › "Task 1/4 — New random data is disabled while n < K" + "Task 4 — generate() itself refuses n < K even if the button were reachable" |
+| 5 | use **distinct** positions as the cap on K | ☑ `kCap() = distinctPoints()`, memoised · `kn.test.mjs` › "Task 5 — the K track stops at the distinct count, not the raw point count" + "…the K note spells out both counts when they differ" + "…the distinct count is memoised but never goes stale" + "distinct positions, not the raw count, are what K is measured against" |
+| 6 | repair empty clusters during iteration | ☑ `meanUpdate()` re-seeds · `algorithm.test.mjs` › "empty-cluster repair (feedback 6, task 6)" — 6 tests covering the re-seed target, two empties landing apart, never draining a donor, finite SSE/MAX MOVE after a full round, the reported count, and silence on a healthy run |
+| 7 | soft warnings when K is technically legal but meaningless | ☑ `kQualityHint()` + `.warn`/`.caution`/`.hint` · `kn.test.mjs` › "Task 7 — K = N is flagged amber as meaningless, but still runs" + "…fewer than 2 points per cluster is amber" + "…a K above 2√N is a soft grey hint" + "…an ordinary K says nothing but the green tick" + "…kQualityHint covers its four bands directly" |
+
+**Two deliberate overrides of older feedback, both flagged rather than slipped in:**
+
+1. **Task 3's clamp vs feedback 3's "never silently rewrites what the user typed".** Implemented as the spec
+   directs — clamping on **commit only** (slider step, or `change`/blur/Enter on a box), never per keystroke.
+   The dead-end it fixes is real: at K = 1672 with the n track ending at 1564 there was no way to drag out of
+   the bad state. §4 has been rewritten so the spec no longer contradicts itself.
+2. **Task 5 + task 7's table vs the old "duplicate-point warning … but still run".** The new table is explicit
+   (`K > distinct N → แดง → ปิดปุ่ม: ใช่`), so `Initialize` now **refuses** instead of warning-and-running, and
+   the K/n ceiling checklist row below is superseded. The old test asserting "it still runs — the warning is
+   advisory" was rewritten accordingly.
+
+**Task 6's premise did not hold, and the spec asked me to check first.** `meanUpdate()` already guarded
+`count === 0` by holding the centroid in place, so there was **no `NaN` bug** to fix. The relocation is still
+a genuine improvement (it drives SSE down instead of stranding a centroid), so it was implemented — with two
+guards the spec's sketch lacked: a donor cluster must keep at least 2 members, and each point is claimed at
+most once. Without the first guard, the sketch would have emptied a single-member cluster to fill another and
+looped forever.
+
+**Task 5's "สุ่มแบบไม่ซ้ำ (ใช้ Set กันซ้ำ)" was done differently:** the generator draws floating-point
+gaussians/uniforms, so exact duplicates essentially never arise from it — de-duplicating the sampler would be
+dead code. Duplicates in practice come from the user clicking the same pixel twice, or from `clampPt` pinning
+several points to a boundary, and `distinctPoints()` catches both.
+
+**Performance note:** `distinctPoints()` is O(N) and `syncBounds()` runs every frame, which would have been a
+real cost against the "unlimited points" requirement. It is memoised on (array identity, length); every path
+that changes the data either replaces the array or changes its length, and nothing mutates a point's x/y in
+place, so the cache cannot go stale — guarded by `kn.test.mjs` › "…memoised but never goes stale".
 
 ### K / n ceiling removal checklist
 
@@ -156,7 +262,7 @@ never be silently rewritten, and only an adaptive, ratcheting slider range can h
 | 2 | n has no fixed maximum (was `≤ 400`) | ☑ `kn.test.mjs` › "the n control declares a minimum of 1 and no maximum at all" |
 | 3 | theory rule 1 ≤ K ≤ N enforced at use, not by clamping the input | ☑ `kn.test.mjs` › "Initialize refuses K > N and says why" + "kFeasible is exactly N >= K" |
 | 4 | K = 1 and K = N (SSE → 0) both run | ☑ `kn.test.mjs` › "K = 1 is legal" + "K = N is the degenerate boundary" |
-| 5 | duplicate-point warning (distinct positions < K) | ☑ `kn.test.mjs` › "duplicate points are warned about" |
+| 5 | duplicate positions bound K (**superseded by feedback 6 task 5**: now a hard refusal, not an advisory warning) | ☑ `kn.test.mjs` › "distinct positions, not the raw count, are what K is measured against" |
 | 6 | colours/names/legend scale to any K | ☑ `kn.test.mjs` › "colours and names keep up with any K" (4 tests) |
 | 7 | `pickInitial` cannot hang when K > N | ☑ `kn.test.mjs` › "pickInitial never hangs…" (this was an infinite `while` loop) |
 
@@ -188,7 +294,7 @@ never be silently rewritten, and only an adaptive, ratcheting slider range can h
 |---|---|---|
 | extract | `tests/extract.mjs` | pulls the real inline `<script>` out of `index.html` into an ESM module — **the tests run the shipped code, never a copy** |
 | browser stub | `tests/dom.mjs` | minimal DOM + canvas stub that records every draw call with its arguments |
-| unit | `tests/{view,algorithm,tools,stroke,render,kn}.test.mjs` | 270 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines, rendering, and the K/n controls |
+| unit | `tests/{view,algorithm,tools,stroke,render,kn}.test.mjs` | 306 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines, rendering, the K/n controls and empty-cluster repair |
 | e2e | `tests/browser.smoke.mjs` | real headless browser, real mouse/keyboard, asserts through the DOM only |
 
 Run: `npm test` (fails the build below line 90% / branch 85% / funcs 90%) · `npm run test:quick` for a fast loop.

@@ -438,3 +438,75 @@ describe("dataset presets", () => {
     assert.equal(dom.el("lblSpd").textContent, "Slow");
   });
 });
+
+
+/* Feedback 6 Task 6 — empty clusters during Lloyd's iteration */
+describe("empty-cluster repair (feedback 6, task 6)", () => {
+  beforeEach(() => { seed(3); reset(); });
+
+  const finite = o => Number.isFinite(o.x) && Number.isFinite(o.y);
+
+  test("an empty centroid is re-seeded onto the worst-served point, never left as NaN", () => {
+    setPoints([pt(10, 10, 0), pt(11, 11, 0), pt(40, 40, 0)]);
+    const out = app.meanUpdate(app.S.points, [{ x: 10, y: 10 }, { x: 90, y: 90 }]);
+    assert.ok(out.every(finite), `NaN in ${JSON.stringify(out)}`);
+    assert.deepEqual(out[1], { x: 40, y: 40 }, "the point furthest from its own centroid");
+    assert.equal(app.lastEmptyFixed, 1);
+  });
+
+  test("two empty clusters in one round land on two different points", () => {
+    setPoints([pt(10, 10, 0), pt(12, 12, 0), pt(50, 50, 0), pt(80, 80, 0)]);
+    const out = app.meanUpdate(app.S.points, [{ x: 10, y: 10 }, { x: 95, y: 5 }, { x: 5, y: 95 }]);
+    assert.ok(out.every(finite));
+    assert.equal(app.lastEmptyFixed, 2);
+    assert.notDeepEqual(out[1], out[2], "two empty clusters must not stack on one coordinate");
+  });
+
+  test("repairing one cluster never empties another", () => {
+    setPoints([pt(10, 10, 0), pt(80, 80, 1)]);       // cluster 1 has exactly one member
+    const out = app.meanUpdate(app.S.points, [{ x: 10, y: 10 }, { x: 80, y: 80 }, { x: 50, y: 50 }]);
+    assert.ok(out.every(finite));
+    assert.equal(app.lastEmptyFixed, 0, "no cluster has a point to spare");
+    assert.deepEqual(out[2], { x: 50, y: 50 }, "the empty centroid holds its position instead");
+  });
+
+  test("a full round with a stranded centroid leaves SSE and MAX MOVE finite", async () => {
+    setPoints(Array.from({ length: 40 }, (_, i) => pt(10 + (i % 8), 10 + Math.floor(i / 8))));
+    app.S.centroids = [
+      { x: 12, y: 12, ax: 12, ay: 12, trail: [] },
+      { x: 95, y: 95, ax: 95, ay: 95, trail: [] },   // nowhere near the data
+    ];
+    app.S.k = 2;
+    app.doAssign();
+    await app.doUpdate();
+    assert.ok(Number.isFinite(app.S.sse), `SSE = ${app.S.sse}`);
+    assert.ok(Number.isFinite(app.S.maxMove), `maxMove = ${app.S.maxMove}`);
+    assert.ok(app.S.centroids.every(c => Number.isFinite(c.x) && Number.isFinite(c.y)));
+  });
+
+  test("the repair count is reported to the user and accumulated on the state", async () => {
+    setPoints(Array.from({ length: 20 }, (_, i) => pt(10 + i * 0.5, 10)));
+    app.S.centroids = [
+      { x: 12, y: 10, ax: 12, ay: 10, trail: [] },
+      { x: 95, y: 95, ax: 95, ay: 95, trail: [] },
+    ];
+    app.S.k = 2; app.S.emptyFixed = 0;
+    app.doAssign();
+    await app.doUpdate();
+    assert.equal(app.S.emptyFixed, 1);
+    assert.match(msg(), /empty cluster.*re-seeded/);
+  });
+
+  test("a healthy run reports no repairs at all", async () => {
+    setPoints([pt(10, 10), pt(11, 11), pt(80, 80), pt(81, 81)]);
+    app.S.centroids = [
+      { x: 10, y: 10, ax: 10, ay: 10, trail: [] },
+      { x: 80, y: 80, ax: 80, ay: 80, trail: [] },
+    ];
+    app.S.k = 2; app.S.emptyFixed = 0;
+    app.doAssign();
+    await app.doUpdate();
+    assert.equal(app.S.emptyFixed, 0);
+    assert.ok(!/re-seeded/.test(msg()), msg());
+  });
+});
