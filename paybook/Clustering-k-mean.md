@@ -32,6 +32,21 @@
 * Do multiple runs and select the clustering with the smallest error.[cite: 1]
 * Select original set of points by methods other than random. E.g., pick the most distant (from each other) points as cluster centers.[cite: 1]
 
+## Valid range of K (K ≤ N)
+*Not in the slides — derived from the problem definition above, and the rule the visualizer enforces.*
+
+* K is a free parameter with **no fixed upper number**. The only bound the algorithm itself imposes is
+  $1 \le K \le N$, where N is the number of data points: a partition into K clusters cannot have more
+  parts than it has elements, so K > N would force at least one cluster to be empty.
+* **K = 1** is legal: every point joins one cluster and the centroid is the global mean.
+* **K = N** is the degenerate upper boundary: each point becomes its own centroid and $cost(C) = 0$.
+  This is why SSE alone cannot choose K — it always falls as K rises, which is what the elbow method works around.
+* The tighter practical bound is the number of **distinct** positions, not the raw count. Identical points
+  always share a nearest centroid, so K duplicates of one coordinate can never be split into K clusters;
+  the extra clusters come out empty.
+* Standard implementations enforce the same rule — scikit-learn raises
+  `n_samples should be >= n_clusters`.
+
 ## Limitations of K-means
 * K-means has problems when clusters are of different sizes.[cite: 1]
 * K-means has problems when clusters are of different densities.[cite: 1]

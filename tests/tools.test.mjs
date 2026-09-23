@@ -134,11 +134,11 @@ describe("brush painting", () => {
     assert.equal(app.S.points.length, n);
   });
 
-  test("painting outside the data frame adds nothing", () => {
+  test("painting outside the visible frame still adds points — the canvas is infinite", () => {
     input("inBrush", 8);
     const n = app.S.points.length;
     down(2, 2); up();                       // the top-left corner is outside the plot frame
-    assert.equal(app.S.points.length, n);
+    assert.ok(app.S.points.length > n);
   });
 
   test("drawing never stops — there is no point cap (feedback 2)", () => {
@@ -279,10 +279,9 @@ describe("centroids: place / move / delete", () => {
     assert.equal(dom.el("stCent").textContent, "1 / 6");
   });
 
-  test("centroids cannot be placed outside the data frame", () => {
+  test("a centroid can be placed outside the visible frame — the canvas is infinite", () => {
     down(3, 3); up();
-    assert.equal(app.S.centroids.length, 0);
-    assert.match(msg(), /inside the data frame/);
+    assert.equal(app.S.centroids.length, 1);
   });
 
   test("placing a centroid reassigns the points straight away", () => {
@@ -327,12 +326,13 @@ describe("centroids: place / move / delete", () => {
     assert.deepEqual(app.S.centroids[0].trail, [{ x: app.S.centroids[0].x, y: app.S.centroids[0].y }]);
   });
 
-  test("dragging a centroid out of bounds clamps it back inside", () => {
+  test("dragging a centroid far off screen is not clamped back", () => {
     down(300, 250); up();
     const s = cScreen(0);
     down(s.x, s.y); move(s.x + 5000, s.y + 5000); up();
     const c = app.S.centroids[0];
-    assert.ok(c.x >= 0 && c.x <= app.LX && c.y >= 0 && c.y <= app.LY, `${c.x},${c.y}`);
+    assert.ok(c.x > app.LX, `x was clamped back to ${c.x}`);
+    assert.ok(c.y < 0, `y was clamped back to ${c.y}`);
   });
 
   test("a plain click selects a centroid instead of moving it", () => {
