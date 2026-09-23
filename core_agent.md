@@ -131,6 +131,22 @@ Two sources, two different jobs. Never mix them up.
      - **The focus can never outlive what it points at.** `sync()` drops it whenever
        `S.focus >= S.centroids.length` (K lowered, centroid deleted, points cleared), and `doInit` /
        `hardReset` clear it outright, so re-running k-means always starts from the overview.
+   - **The page must be idle when the user is idle (feedback 8 — REQUIRED).** Cost is a feature of the
+     interaction, not an implementation detail, so it is specified here as observable behaviour:
+     - **A canvas that nobody is touching paints zero frames.** The repaint count is mirrored on
+       `#canvas[data-paints]`, exactly as the view is mirrored on `data-view`, so this is checkable from
+       the DOM. Painting is demand-driven: `invalidate()` wakes the loop, `frame()` stops it. An
+       unconditional `requestAnimationFrame(render)` chain is a bug, not a simplification.
+     - **Drawing must not get slower as the canvas fills up.** No per-pointer-event work may be O(N):
+       `distinctPoints()` is incremental (points are only ever appended or the array is replaced),
+       `sync()` skips the legend and the SSE chart when neither changed, and `evPos()` never calls
+       `getBoundingClientRect()` per event — that call forces a synchronous layout.
+     - **A steady-state frame allocates nothing per point.** `render()` inlines the world→screen
+       transform and reuses its per-colour buffers; `colorFor()` is memoised. GC pauses from
+       per-point objects are what stutter felt like at 20k points.
+     - Anything that changes what is on screen must call `invalidate()`. `sync()` and `markView()`
+       already cover almost all of it; a running animation or a live drag keeps the loop turning by
+       itself, so a missed call cannot strand a stale frame mid-interaction.
    - **Tool state:** one explicit active tool (`Pen` / `Spray` / `Brush` / `Eraser` / `Hand` / `Centroid` / `Random`) shown in the UI, switchable by click and by keyboard shortcut (`P` `S` `B` `E` `H` `C` `R`). Editing tools — `Random` included — are disabled (not silently ignored) while an animation is running; only `Hand` stays live.
 5. **Technical Constraints:**
    - Build a Single Page Application (SPA).
@@ -144,7 +160,7 @@ Two sources, two different jobs. Never mix them up.
 
 ---
 
-## ✅ Delivery Status — REVISION 2 DONE (Feedback 1–7 closed · 1 feature spec shipped)
+## ✅ Delivery Status — REVISION 2 DONE (Feedback 1–8 closed · 1 feature spec shipped)
 
 | item | value |
 |---|---|
@@ -152,8 +168,9 @@ Two sources, two different jobs. Never mix them up.
 | Docs | `README.md` |
 | Rev 1 | ✅ delivered — verified in headless browser: 0 console errors, 0 failed requests, SSE monotonically decreasing, assignments = nearest centroid, centroids = cluster means |
 | Rev 2 | ✅ delivered — class feedback (`Memory/feedback.md`) implemented, see §4 |
-| Tests | `npm test` → 342 unit tests, **342 pass / 0 fail** · coverage line 99.4% / branch 96.3% / funcs 96.5% |
-| Browser QA | `npm run verify:browser` → 105/105, 0 console errors, 0 failed requests |
+| Rev 3.1 | ✅ delivered — feedback 8 (lag / resource drain), see the Feedback 8 checklist |
+| Tests | `npm test` → 369 unit tests, **369 pass / 0 fail** · coverage line 99.5% / branch 97.0% / funcs 94.9% |
+| Browser QA | `npm run verify:browser` → 111/111, 0 console errors, 0 failed requests |
 
 ### Canvas semantics — settled: the canvas is infinite
 
@@ -324,6 +341,46 @@ Two mitigations keep it cheap — `G` generates from **any** tool, and `R` selec
 suite failing exactly where a user would now have to change tools. They were routed through a `genData()`
 helper that selects 🎲 first, which is the honest encoding of the new flow.
 
+### Feedback 8 checklist (`Memory/feedback.md` §feedback8)
+
+> "แก้ปัญหาอาการหน่วงlag กินทรัพยากรให้หน่อย แก้แล้วบอกด้วย ในlogว่าเกิดจากอะไรแก้ด้วยวิธีไหน"
+
+Tests live in their own file, `tests/perf.test.mjs` (25 tests), plus 6 real-browser checks.
+
+| # | cause found | fix | status |
+|---:|---|---|---|
+| 1 | `render()` self-scheduled a frame unconditionally — an idle page repainted 60×/s forever | demand-driven `invalidate()` / `frame()`; the loop sleeps when there is nothing to draw | ☑ `perf.test.mjs` › "an idle canvas schedules no frames at all" + "invalidate() is the only thing that wakes it" + "a live animation keeps the loop turning on its own" + "a drag keeps the loop turning" · browser › "an idle page repaints zero times" |
+| 2 | `distinctPoints()` memoised on (array, **length**), which the brush changes every event — the cache never once hit, so every pointermove re-hashed all N points | incremental: appends hash only the new tail; a shrink or a swap rebuilds | ☑ `perf.test.mjs` › "it stays exact as points are appended one at a time" + "replacing the array rebuilds from scratch" + "shrinking the array rebuilds too" + "erasing points lowers the count" + "a long brush stroke over a full canvas stays responsive" |
+| 3 | `sync()` rewrote `legend.innerHTML`, repainted the SSE chart and re-ran `querySelectorAll` on every pointer event | guarded writes; the chart repaints only when `S.history` moves; node lists hoisted | ☑ `perf.test.mjs` › "the legend is not re-parsed when its contents are identical" + "but a real change still gets through" + "the SSE chart is not repainted while the history is unchanged" + "appending a data point does not repaint the chart either" + "a new history entry does repaint it" |
+| 4 | `evPos()` called `getBoundingClientRect()` per pointermove — a forced layout per event | rect cached, dropped on resize / scroll | ☑ `perf.test.mjs` › "the canvas rect is measured once, not on every pointermove" + "resizing re-measures it, so the mapping cannot go stale" |
+| 5 | `render()` allocated an object per point per frame (`px()`), rebuilt its buckets, and built colour strings per point | inlined transform, reused buffers, memoised `colorFor`, one path for the grid | ☑ `perf.test.mjs` › "the reused colour buffers give byte-identical frames" + "a cluster scrolled out of view costs nothing to draw" + "the grid is one path, not a stroke per line" + "the generated cluster colours are memoised" + "lowering K releases the reused buffers instead of hoarding them" |
+| 6 | farthest-first init was O(K²·N) with an array per point; `Math.max(...spread)` throws outright at large K | running nearest-distance in a `Float64Array`; spreads replaced by loops | ☑ `perf.test.mjs` › "farthest-first initialization picks the same centroids as the old O(K^2.N) form" + "farthest-first stays quick on a heavily drawn canvas" + "max-move survives a K large enough to blow a spread argument list" |
+
+**Measured on the shipped code, old build vs new, same stub:** idle repaints per 120 frames 120 → **0** ·
+per pointermove while painting over 5,000 points 1.86 ms → **0.02 ms** · `sync()` 4.00 → **0.22 ms** ·
+`render()` JS work at 20,000 points 1.71 → **0.79 ms/frame** · garbage per 200 frames 10.1 → **0.7 MB** ·
+farthest-first (N = 3,000, K = 12) 11.9 → **2.2 ms**.
+
+**One test had to be rewritten, and its name was the reason.** `render.test.mjs` › "render always queues
+the next frame" asserted the very behaviour that was the bug. It is now "rendering is demand-driven: a
+finished frame does not schedule another one", plus two new tests for the wake/sleep contract. This is the
+same debt §"Canvas semantics" describes — a test whose name pins the wrong contract is worse than no test.
+
+**Trade-offs taken, not hidden:**
+1. `distinctPoints()` now holds a `Set` of ~N keys for the lifetime of the data. A few MB at 100k points,
+   against an O(N) re-hash per mouse move — clearly the right way round, but it is a real cost.
+2. Reused render buffers could become hoarded memory when K drops, so the cache is cleared outright once it
+   holds more colours than there are live centroids.
+3. **Not fixed:** `Best Centroids` still runs 10 full k-means passes synchronously on the main thread, so it
+   still blocks for seconds at large N. Its inner loops got cheaper (`assignAll`, `pickInitial`), but the
+   blocking structure stands — making it async would change the API and risk the older feedback. Stated
+   rather than quietly left out.
+
+**`#canvas[data-paints]` is instrumentation, and deliberate.** patchright's isolated world cannot read
+page globals, so without mirroring the paint count onto the DOM the central claim of this feedback —
+"the idle page now paints nothing" — would be untestable in a real browser. It costs one attribute write
+on a frame that was being drawn anyway.
+
 ### Cluster focus checklist (`Memory/cluster_focus_feature.md`)
 
 New tests live in their own file, `tests/focus.test.mjs` (30 tests), so the feature is additive in the suite too.
@@ -402,14 +459,15 @@ tween actually needs fixed it. Do not over-advance `dom.advance()`.
 |---|---|---|
 | extract | `tests/extract.mjs` | pulls the real inline `<script>` out of `index.html` into an ESM module — **the tests run the shipped code, never a copy** |
 | browser stub | `tests/dom.mjs` | minimal DOM + canvas stub that records every draw call with its arguments |
-| unit | `tests/{view,algorithm,tools,stroke,render,kn,focus}.test.mjs` | 342 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines, rendering, the K/n controls and empty-cluster repair |
+| unit | `tests/{view,algorithm,tools,stroke,render,kn,focus,perf}.test.mjs` | 369 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines, rendering, the K/n controls, empty-cluster repair, and the feedback-8 cost contract |
 | e2e | `tests/browser.smoke.mjs` | real headless browser, real mouse/keyboard, asserts through the DOM only |
 
 Run: `npm test` (fails the build below line 90% / branch 85% / funcs 90%) · `npm run test:quick` for a fast loop.
 
 **Watch out:** patchright runs `page.evaluate` in an *isolated world*, so `window.__app` / `window.S` are
 invisible to browser tests. Assert through the DOM instead — `#stN`, `#stCent`, `#lblZoom`, `#msg`,
-`#phaseName`, and `#canvas[data-view]` (which mirrors `zoom,panX,panY`).
+`#phaseName`, `#canvas[data-view]` (which mirrors `zoom,panX,panY`) and `#canvas[data-paints]` (the
+repaint counter, which is how idleness is proven).
 
 ## 🔁 Feedback workflow (`Memory/`)
 
