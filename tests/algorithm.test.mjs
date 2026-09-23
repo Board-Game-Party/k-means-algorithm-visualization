@@ -352,7 +352,8 @@ describe("dataset presets", () => {
       dom.el("inData").value = kind;
       app.generate();
       assert.ok(app.S.points.length > 20, `got ${app.S.points.length} points`);
-      for(const p of app.S.points) assert.ok(app.inWorld(p), `point outside the frame: ${p.x},${p.y}`);
+      for(const p of app.S.points)
+        assert.ok(p.x >= 0 && p.x <= app.LX && p.y >= 0 && p.y <= app.LY, `point outside the frame: ${p.x},${p.y}`);
       assert.equal(app.S.centroids.length, 0, "generating data must reset the centroids");
     });
   }

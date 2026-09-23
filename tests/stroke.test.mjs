@@ -81,9 +81,9 @@ describe("pen (feedback 2: one press = one point)", () => {
     near(last.x, w.x); near(last.y, w.y);
   });
 
-  test("points cannot be placed outside the data frame", () => {
+  test("the pen places a point anywhere — the canvas is infinite", () => {
     down(2, 2); up();
-    assert.equal(app.S.points.length, 0);
+    assert.equal(app.S.points.length, 1);
   });
 
   test("adding a point sends the phase back to assign", () => {
@@ -207,12 +207,12 @@ describe("spray (hold to build up points)", () => {
     assert.ok(ds[Math.floor(ds.length / 2)] < r * 0.75, "the spray must be denser in the middle");
   });
 
-  test("spraying outside the data frame adds nothing", () => {
+  test("spraying works outside the visible frame too — the canvas is infinite", () => {
     input("inBrush", 8);
     down(2, 2);
     hold(app.SPRAYMS * 4);
     up();
-    assert.equal(app.S.points.length, 0);
+    assert.ok(app.S.points.length > 0);
   });
 
   test("spraying continues even with a huge point count — no cap (feedback 2)", () => {
@@ -344,11 +344,17 @@ describe("brush: strokes stay unbroken", () => {
     assert.ok(median < r * 0.75, `median ${median.toFixed(2)} should be below ${(r * 0.75).toFixed(2)} (ink must pack toward the centre)`);
   });
 
-  test("every point along a stroke stays inside the data frame", () => {
+  test("every point along a stroke lands within the brush radius of the drag path", () => {
     down(60, 60);
     move(740, 440);
     up();
-    for(const p of app.S.points) assert.ok(app.inWorld(p), `outside the frame: ${p.x},${p.y}`);
+    assert.ok(app.S.points.length > 0);
+    const r = app.brushR() / app.sc() + 1e-6;
+    const a = app.toLogical(60, 60), b = app.toLogical(740, 440);
+    const loX = Math.min(a.x, b.x) - r, hiX = Math.max(a.x, b.x) + r;
+    const loY = Math.min(a.y, b.y) - r, hiY = Math.max(a.y, b.y) + r;
+    for(const p of app.S.points)
+      assert.ok(p.x >= loX && p.x <= hiX && p.y >= loY && p.y <= hiY, `off the stroke: ${p.x},${p.y}`);
   });
 });
 

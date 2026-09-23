@@ -57,6 +57,12 @@ Two sources, two different jobs. Never mix them up.
      - The only bound is the theory rule from `paybook/Clustering-k-mean.md` §"Valid range of K": **1 ≤ K ≤ N**. Enforce it at the point of use — `Initialize` and `Best of 10` refuse to run and say why; the control itself never silently rewrites what the user typed.
      - Report the constraint live next to the K box (`K ≤ N ✓`, `K > N — needs m more points`, `K = N → SSE 0`), and mark the field invalid rather than clamping it.
      - Duplicate points are the tighter bound: warn when the number of *distinct* positions is below K, but still run.
+     - **Both a slider and a typed box (feedback 4).** Each of K and n is offered twice: an uncapped
+       `<input type="number">` and an `<input type="range">` scrubber beside it, kept in sync both ways and
+       running through one code path. A range input must declare a `max`, so the box is the authority and the
+       slider's top end is adaptive — it starts at a comfortable default (`KSLIDE` / `NSLIDE`) and **ratchets up**
+       to whatever was typed. It never shrinks (so the track cannot rescale under a thumb mid-drag) and it can
+       never clamp a typed value.
      - Cluster colours and names must be generated, not indexed out of a fixed 8-entry table — any K gets a distinct colour (golden-angle hues after the 8 base ones) and a name (A…Z, AA, AB…). The legend lists up to `LEGENDMAX` and then says "+n more".
    - **Tool state:** one explicit active tool (`Pen` / `Spray` / `Brush` / `Eraser` / `Hand` / `Centroid`) shown in the UI, switchable by click and by keyboard shortcut. Editing tools are disabled (not silently ignored) while an animation is running.
 5. **Technical Constraints:**
@@ -71,7 +77,7 @@ Two sources, two different jobs. Never mix them up.
 
 ---
 
-## ✅ Delivery Status — REVISION 2 DONE
+## ✅ Delivery Status — REVISION 2 DONE (Feedback 1–3 closed)
 
 | item | value |
 |---|---|
@@ -79,9 +85,31 @@ Two sources, two different jobs. Never mix them up.
 | Docs | `README.md` |
 | Rev 1 | ✅ delivered — verified in headless browser: 0 console errors, 0 failed requests, SSE monotonically decreasing, assignments = nearest centroid, centroids = cluster means |
 | Rev 2 | ✅ delivered — class feedback (`Memory/feedback.md`) implemented, see §4 |
-| Tests | `npm test` → 259 unit tests, **246 pass / 13 fail** · coverage line 97.8% / branch 96.8% / funcs 94.6% |
-| Browser QA | `tests/browser.smoke.mjs` → 44/44, 0 console errors, 0 failed requests |
-| ⚠️ Known-failing | the 13 failures are **stale bounded-canvas assertions** (`inWorld`, `clampPan`, `clampToView`, `resize`, "outside the data frame"). Commit `a62f2f0` turned the canvas infinite — `inWorld` now returns `true` for every point — but the tests still encode the old fixed frame. Decide the infinite-canvas semantics, then rewrite those tests; they are not a K/n regression (verified: identical failure set before and after). |
+| Tests | `npm test` → 270 unit tests, **270 pass / 0 fail** · coverage line 97.8% / branch 97.2% / funcs 94.7% |
+| Browser QA | `npm run verify:browser` → 52/52, 0 console errors, 0 failed requests |
+
+### Canvas semantics — settled: the canvas is infinite
+
+Commit `a62f2f0` made the canvas infinite but left the bounded-frame machinery behind as stubs
+(`inWorld` returning `true` for everything, empty `clampPan` / `clampToView`), which silently turned
+13 tests into stale assertions. The semantics are now decided and the dead code is gone:
+
+| rule | where it is enforced |
+|---|---|
+| **No world boundary.** Pen, spray, brush and centroids place at the cursor wherever it is — there is no "outside the data frame". | `inWorld` deleted, with its three guard sites |
+| **The pan is never clamped.** Dragging the hand 5,000px moves the view exactly 5,000px; `Focus` / `Reset view` are how you get back. | `clampPan` deleted; the pan handler calls `markView()` |
+| **Resize moves nothing.** Changing the window recomputes `unit` / `LX` only — no point, centroid or pan offset is pulled back. | `clampToView` deleted; `resize()` calls `markView()` |
+| **Zoom is still clamped** to `ZMIN = 0.05 … ZMAX = 8` — a scale range, not a world bound. | `zoomAt` |
+| Only **generated** data is bounded (`clampPt`), so a new preset always lands on screen. | `generate` |
+
+Rewritten tests: `view.test.mjs` › "the canvas is infinite: the transform is valid arbitrarily far outside the frame",
+"the pan is never clamped to the right/left", "vertical panning is unbounded in both directions",
+"zooming out is clamped at ZMIN = 0.05", "resize … leaves the pan exactly where it was",
+"resize never moves a point / drags an off-screen centroid back" · `stroke.test.mjs` › "the pen places a point anywhere",
+"spraying works outside the visible frame too", "every point along a stroke lands within the brush radius of the drag path"
+· `tools.test.mjs` › "painting outside the visible frame still adds points", "a centroid can be placed outside the visible frame",
+"dragging a centroid far off screen is not clamped back" · `algorithm.test.mjs` › the preset tests now assert real `0…LX` / `0…LY` bounds
+instead of calling the vacuous `inWorld`.
 
 ### Rev 2 checklist (`Memory/feedback.md` §Feedback from class)
 
@@ -98,6 +126,27 @@ Two sources, two different jobs. Never mix them up.
 | 2 | Drawing stops working after a while → make it **unlimited** | ☑ cap removed; `render.test.mjs` › "unlimited drawing (feedback 2)" — 6 tests + browser check at 2,000+ points |
 | 2 | Pan (hand tool) + wheel zoom on the canvas | ☑ `view.test.mjs` (36 tests) |
 | 3 | Drag centroids; click-to-spawn centroid capped at `k`; delete centroid | ☑ `tools.test.mjs` (25 tests) |
+
+### Feedback 3 checklist (`Memory/feedback.md` §Feedback 3)
+
+| # | feedback item | status |
+|---|---|---|
+| 1 | paybook must state the K ↔ n relationship, `K ≤ n` | ☑ `paybook/Clustering-k-mean.md` §"Valid range of K (K ≤ N)" — 1 ≤ K ≤ N, K = 1 and K = N boundaries, distinct-positions caveat |
+| 2 | K and n controls become typed **input fields**, not sliders, still obeying `K ≤ n` | ☑ `index.html` `#inK` / `#inN` are `<input type="number" min="1" step="1">` with no `max`; `kn.test.mjs` › "the K control declares a minimum of 1 and no maximum at all" + "Initialize refuses K > N and says why" |
+
+### Feedback 4 checklist (`Memory/feedback.md` §Feedback 4)
+
+| # | feedback item | status |
+|---|---|---|
+| 1 | "UI use both Slider and Input field" — K and n each get a slider *and* a typed box | ☑ `#inK`+`#inKR`, `#inN`+`#inNR`; `kn.test.mjs` › "K is offered as a number box AND a range slider" + "n is offered as…" |
+| 2 | both halves stay in sync, in both directions | ☑ `kn.test.mjs` › "dragging the K slider drives K, the label and the number box" + "typing in the K box moves the slider" + "dragging the n slider drives n, and generate honours it" |
+| 3 | the slider must not reintroduce the ceiling feedback 3 removed | ☑ `kn.test.mjs` › "the number boxes are still the uncapped ones (feedback 3 is not regressed)" + "the K slider stretches to fit a typed value far above its default top" + "the n slider stretches to a typed n far past its default top" + "a scrubbed K over N is reported, not clamped" |
+| 4 | scrubbing takes the same code path as typing (trimming, warnings, K ≤ N note) | ☑ `kn.test.mjs` › "scrubbing K down trims the extra centroids, exactly like typing does"; the shared `applyK()` |
+| 5 | the slider range ratchets, never shrinks | ☑ `kn.test.mjs` › "the slider range only ever grows, so the track cannot rescale mid-drag" |
+
+**Assumption stated (per the ambiguity rule):** "use both" is read as *one value, two controls* — not two
+independent settings. The typed box remains the source of truth precisely because feedback 3 said K and n must
+never be silently rewritten, and only an adaptive, ratcheting slider range can honour that alongside a slider.
 
 ### K / n ceiling removal checklist
 
@@ -139,7 +188,7 @@ Two sources, two different jobs. Never mix them up.
 |---|---|---|
 | extract | `tests/extract.mjs` | pulls the real inline `<script>` out of `index.html` into an ESM module — **the tests run the shipped code, never a copy** |
 | browser stub | `tests/dom.mjs` | minimal DOM + canvas stub that records every draw call with its arguments |
-| unit | `tests/{view,algorithm,tools,stroke,render}.test.mjs` | 241 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines and rendering |
+| unit | `tests/{view,algorithm,tools,stroke,render,kn}.test.mjs` | 270 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines, rendering, and the K/n controls |
 | e2e | `tests/browser.smoke.mjs` | real headless browser, real mouse/keyboard, asserts through the DOM only |
 
 Run: `npm test` (fails the build below line 90% / branch 85% / funcs 90%) · `npm run test:quick` for a fast loop.

@@ -16,7 +16,7 @@ describe("world ↔ screen transform", () => {
 
   test("px/toLogical still round-trips after zooming and panning", () => {
     app.zoomAt(300, 200, 2.5);
-    app.V.px += 37; app.V.py -= 21; app.clampPan();
+    app.V.px += 37; app.V.py -= 21; app.markView();
     for(const w of [{ x: 0, y: 0 }, { x: 10, y: 90 }, { x: 80.5, y: 33.3 }]){
       const s = app.px(w), back = app.toLogical(s.x, s.y);
       near(back.x, w.x, 1e-9); near(back.y, w.y, 1e-9);
@@ -43,14 +43,11 @@ describe("world ↔ screen transform", () => {
     assert.equal(app.d2({ x: 2, y: 2 }, { x: 2, y: 2 }), 0);
   });
 
-  test("inWorld knows all four boundaries", () => {
-    assert.ok(app.inWorld({ x: 1, y: 1 }));
-    assert.ok(app.inWorld({ x: 0, y: 0 }));
-    assert.ok(app.inWorld({ x: app.LX, y: app.LY }));
-    assert.ok(!app.inWorld({ x: -0.1, y: 50 }));
-    assert.ok(!app.inWorld({ x: app.LX + 0.1, y: 50 }));
-    assert.ok(!app.inWorld({ x: 50, y: -0.1 }));
-    assert.ok(!app.inWorld({ x: 50, y: app.LY + 0.1 }));
+  test("the canvas is infinite: the transform is valid arbitrarily far outside the frame", () => {
+    for(const w of [{ x: -5000, y: -5000 }, { x: app.LX + 5000, y: app.LY + 5000 }]){
+      const back = app.toLogical(app.px(w).x, app.px(w).y);
+      near(back.x, w.x, 1e-6); near(back.y, w.y, 1e-6);
+    }
   });
 });
 
@@ -79,9 +76,9 @@ describe("zoom", () => {
     near(app.V.z, 8, 1e-9);
   });
 
-  test("zooming out is clamped at ZMIN = 0.4", () => {
+  test("zooming out is clamped at ZMIN = 0.05", () => {
     for(let i = 0; i < 60; i++) app.zoomAt(400, 250, 0.8);
-    near(app.V.z, 0.4, 1e-9);
+    near(app.V.z, 0.05, 1e-9);
   });
 
   test("zooming past the ceiling changes nothing", () => {
@@ -180,22 +177,22 @@ describe("pan (hand tool)", () => {
     assert.equal(dom.canvas().style.cursor, "grab");
   });
 
-  test("clampPan keeps the data frame from leaving the screen to the right", () => {
+  test("the pan is never clamped to the right — the canvas is infinite", () => {
     down(400, 250); move(400 + 5000, 250); up();
-    assert.ok(app.V.px <= app.plotW - 60 + 1e-9, `px = ${app.V.px}`);
+    assert.equal(app.V.px, 5000);
   });
 
-  test("clampPan keeps the data frame from leaving the screen to the left", () => {
+  test("the pan is never clamped to the left either", () => {
     down(400, 250); move(400 - 5000, 250); up();
-    assert.ok(app.V.px >= 60 - app.LX * app.sc() - 1e-9, `px = ${app.V.px}`);
+    assert.equal(app.V.px, -5000);
   });
 
-  test("clampPan holds the frame on screen vertically as well", () => {
+  test("vertical panning is unbounded in both directions", () => {
     down(400, 250); move(400, 250 + 5000); up();
-    assert.ok(app.V.py <= app.LY * app.sc() - 60 + 1e-9);
+    assert.equal(app.V.py, 5000);
     app.resetView();
     down(400, 250); move(400, 250 - 5000); up();
-    assert.ok(app.V.py >= 60 - app.plotH - 1e-9);
+    assert.equal(app.V.py, -5000);
   });
 
   test("panning still works while the algorithm runs (navigation is not editing)", () => {
@@ -267,25 +264,28 @@ describe("data stays put when the view changes (Rev 2 acceptance)", () => {
 describe("resize", () => {
   beforeEach(() => reset());
 
-  test("resize recomputes unit/LX and keeps the pan clamped", () => {
+  test("resize recomputes unit/LX and leaves the pan exactly where it was", () => {
     app.zoomAt(400, 250, 4);
     app.V.px = 99999;
     app.resize();
-    assert.ok(app.V.px <= app.plotW - 60 + 1e-9);
+    assert.equal(app.V.px, 99999, "an infinite canvas never claws the pan back");
     assert.ok(app.LX > 0 && app.plotH > 0);
     assert.equal(app.LX.toFixed(4), (app.plotW / app.unit).toFixed(4));
   });
 
-  test("clampToView pulls points past the right edge back in", () => {
+  test("resize never moves a point that sits outside the visible frame", () => {
     setPoints([pt(app.LX + 40, 50)]);
-    app.clampToView();
-    assert.ok(app.S.points[0].x <= app.LX - 1.5 + 1e-9);
+    const snap = { ...app.S.points[0] };
+    app.resize();
+    assert.equal(app.S.points[0].x, snap.x);
+    assert.equal(app.S.points[0].y, snap.y);
   });
 
-  test("clampToView pulls stranded centroids back too", () => {
+  test("resize never drags an off-screen centroid back either", () => {
     app.S.centroids = [{ x: app.LX + 30, y: 20, ax: app.LX + 30, ay: 20, trail: [] }];
-    app.clampToView();
-    assert.ok(app.S.centroids[0].x <= app.LX - 1.5 + 1e-9);
-    assert.ok(app.S.centroids[0].ax <= app.LX - 1.5 + 1e-9);
+    const snap = { ...app.S.centroids[0] };
+    app.resize();
+    assert.equal(app.S.centroids[0].x, snap.x);
+    assert.equal(app.S.centroids[0].ax, snap.ax);
   });
 });

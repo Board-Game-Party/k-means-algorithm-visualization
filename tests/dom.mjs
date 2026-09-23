@@ -92,6 +92,8 @@ el("canvas", { tagName: "CANVAS", rect: { left: 0, top: 0, width: W, height: H }
 el("chart",  { tagName: "CANVAS", rect: { left: 0, top: 0, width: CHART_W, height: CHART_H } });
 el("inK",     { tagName: "INPUT", value: 3 });    // number input: K has no fixed ceiling, only K ≤ N
 el("inN",     { tagName: "INPUT", value: 150 });  // number input: n has no fixed ceiling
+el("inKR",    { tagName: "INPUT", value: 3 });    // feedback 4: the K slider paired with the K box
+el("inNR",    { tagName: "INPUT", value: 150 });  // feedback 4: the n slider paired with the n box
 el("inSpd",   { tagName: "INPUT", value: 1 });
 el("inBrush", { tagName: "INPUT", value: 28 });
 el("inDens",  { tagName: "INPUT", value: 3 });

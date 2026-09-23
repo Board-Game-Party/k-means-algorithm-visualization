@@ -178,3 +178,96 @@ describe("colours and names keep up with any K", () => {
     assert.ok(html2.includes(`+${40 - app.LEGENDMAX} more clusters`), html2);
   });
 });
+
+
+/* ---------------------------------------------------------------------------
+   Feedback 4: "UI use both Slider and Input field".
+   The number box stays the authority (unbounded, never silently rewritten) and the
+   slider is a scrubber over an adaptive range, so feedback 3's rule survives intact.
+   --------------------------------------------------------------------------- */
+describe("Feedback 4: both a slider and an input field", () => {
+  beforeEach(() => reset());
+
+  test("K is offered as a number box AND a range slider", () => {
+    assert.match(tag("inK"), /type="number"/);
+    assert.match(tag("inKR"), /type="range"/);
+    assert.match(tag("inKR"), /min="1"/);
+  });
+
+  test("n is offered as a number box AND a range slider", () => {
+    assert.match(tag("inN"), /type="number"/);
+    assert.match(tag("inNR"), /type="range"/);
+    assert.match(tag("inNR"), /min="1"/);
+  });
+
+  test("the number boxes are still the uncapped ones (feedback 3 is not regressed)", () => {
+    assert.ok(!/\bmax="/.test(tag("inK")), "the K box must stay uncapped");
+    assert.ok(!/\bmax="/.test(tag("inN")), "the n box must stay uncapped");
+  });
+
+  test("dragging the K slider drives K, the label and the number box", () => {
+    setPoints(line(40));
+    input("inKR", 7);
+    assert.equal(app.S.k, 7);
+    assert.equal(dom.el("inK").value, "7", "the box must mirror the scrub");
+    assert.equal(dom.el("lblK").textContent, "7");
+    assert.equal(dom.el("stCent").textContent, "0 / 7");
+  });
+
+  test("typing in the K box moves the slider", () => {
+    setPoints(line(40));
+    input("inK", 11);
+    assert.equal(Number(dom.el("inKR").value), 11);
+  });
+
+  test("the K slider stretches to fit a typed value far above its default top", () => {
+    setPoints(line(300));
+    input("inK", app.KSLIDE + 137);
+    assert.equal(app.S.k, app.KSLIDE + 137);
+    assert.ok(Number(dom.el("inKR").max) >= app.KSLIDE + 137,
+      `the slider must never cap the box: max=${dom.el("inKR").max}`);
+    assert.equal(Number(dom.el("inKR").value), app.KSLIDE + 137);
+  });
+
+  test("the slider range only ever grows, so the track cannot rescale mid-drag", () => {
+    setPoints(line(300));
+    input("inK", 90);
+    const top = Number(dom.el("inKR").max);
+    input("inK", 4);
+    assert.equal(Number(dom.el("inKR").max), top, "the top end must ratchet, never shrink");
+    assert.equal(Number(dom.el("inKR").value), 4);
+  });
+
+  test("dragging the n slider drives n, and generate honours it", () => {
+    input("inNR", 42);
+    assert.equal(dom.el("inN").value, "42");
+    assert.equal(dom.el("lblN").textContent, "42");
+    app.generate();
+    assert.ok(Math.abs(app.S.points.length - 42) <= 6, `got ${app.S.points.length}`);
+  });
+
+  test("the n slider stretches to a typed n far past its default top", () => {
+    input("inN", app.NSLIDE * 3);
+    assert.equal(dom.el("inN").value, String(app.NSLIDE * 3), "the typed n must survive untouched");
+    assert.ok(Number(dom.el("inNR").max) >= app.NSLIDE * 3);
+  });
+
+  test("scrubbing K down trims the extra centroids, exactly like typing does", () => {
+    setPoints(line(40));
+    input("inK", 6);
+    app.doInit();
+    assert.equal(app.S.centroids.length, 6);
+    input("inKR", 2);
+    assert.equal(app.S.k, 2);
+    assert.equal(app.S.centroids.length, 2, "scrubbing must take the same code path as typing");
+  });
+
+  test("a scrubbed K over N is reported, not clamped", () => {
+    setPoints(line(5));
+    input("inKR", 9);
+    assert.equal(app.S.k, 9, "the slider must not quietly clamp to N");
+    assert.match(dom.el("kNote").textContent, /K > N/);
+    assert.ok(dom.el("inK").classList.contains("bad"));
+    assert.equal(app.kFeasible(), false);
+  });
+});

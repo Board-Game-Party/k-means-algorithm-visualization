@@ -70,7 +70,7 @@ drawing stays smooth however much you paint.
 **Editing centroids by hand**
 
 - The **Centroids** stat shows the live count as `m / k`. You may place up to `K`; beyond that the app warns you and refuses.
-- Want more? Raise the **K** slider (already-placed centroids are kept). Lower it below the current count and the extras are trimmed.
+- Want more? Raise the **K** field (already-placed centroids are kept). Lower it below the current count and the extras are trimmed.
 - Deleting centroids until `m < k` is fine — the algorithm keeps running with what is left. **Initialize** always resamples a full set of `K`.
 - Every manual move, add or delete **reassigns the points from the new position immediately** and restarts the iteration
   count (the old SSE curve is no longer comparable).
@@ -78,7 +78,10 @@ drawing stays smooth however much you paint.
 
 ### Buttons and controls
 
-- **K** — number of clusters. **No fixed ceiling**: type any integer ≥ 1. With no centroids yet it resets; with
+- **K** — number of clusters, offered as **both a slider and a typed box** — drag to scrub, or type an exact value;
+  the two always show the same number. **No fixed ceiling**: type any integer ≥ 1. The slider has to declare a top
+  end, so the box is the authority: the slider's range stretches to whatever you type and never shrinks back, which
+  means it can never cap you. With no centroids yet it resets; with
   centroids placed it keeps them and only trims those above K.
   The one rule k-means imposes is **1 ≤ K ≤ N** — you cannot ask for more clusters than you have data points —
   so the note under the box reports the state live (`K ≤ N ✓`, `K > N — needs 4 more points`, `K = N → SSE 0`),
@@ -87,8 +90,10 @@ drawing stays smooth however much you paint.
   K = 1 gives the global mean; K = N puts every point on its own centroid and drives SSE to 0 — which is exactly why a
   low SSE on its own never proves a good K. Past the eight named clusters, colours keep going on a golden-angle hue
   sweep and names continue `Cluster I`, `Cluster J` … `Cluster AA`; the legend lists 24 and then says "+n more".
-- **n** — how many points *New random data* generates. **No fixed ceiling**: any integer ≥ 1 (the presets round, so the
-  final count can differ by a point or two). Drawing on the canvas adds more on top, also without a limit.
+- **n** — how many points *New random data* generates, also as **both a slider and a typed box**. **No fixed ceiling**:
+  any integer ≥ 1 (the presets round, so the final count can differ by a point or two); the slider reaches 1000 out of
+  the box and stretches further the moment you type a bigger number. Drawing on the canvas adds more on top, also
+  without a limit.
 - **Speed** — Slow / Normal / Fast / Instant animation.
 - **Dataset preset** — each one demonstrates a documented K-means limitation (table below).
 - **Initial centroid method** — `Random` or `Farthest-first`.
@@ -114,7 +119,8 @@ One file: `index.html` = HTML + CSS + vanilla JS (HTML5 Canvas), with Tailwind f
 inside <script>
   CONFIG / STATE        constants and the central state object (S) — exposed as window.S for debugging
   GEOMETRY + VIEW       logical LX×100 ↔ pixels through a single view (V = zoom + pan)
-                        px() / toLogical() / clampPan() / zoomAt() — every draw and hit-test shares them
+                        px() / toLogical() / zoomAt() — every draw and hit-test shares them.
+                        The canvas is infinite: nothing clamps the pan and no position is out of bounds
   DATA GENERATION       gaussian blobs, rings, outliers
   K-MEANS CORE          pickInitial / assignAll / meanUpdate / silentRun
   STEP MACHINE          doInit → doAssign ⇄ doUpdate → done
@@ -156,13 +162,13 @@ The suite **pulls the real `<script>` out of `index.html`** and runs it against 
 
 | File | Tests | Covers |
 |---|---:|---|
-| `tests/view.test.mjs` | 36 | coordinate round-trips, zoom limits, clampPan, data staying put under pan/zoom |
+| `tests/view.test.mjs` | 36 | coordinate round-trips, zoom limits, unclamped panning on the infinite canvas, data staying put under pan/zoom |
 | `tests/algorithm.test.mjs` | 50 | assign/update/init/best-of-N/presets/animation, and SSE falling every round |
 | `tests/tools.test.mjs` | 61 | brush, eraser, placing–dragging–deleting centroids, the K ceiling, the busy lock |
-| `tests/kn.test.mjs` | 18 | K and n have no fixed maximum, the 1 ≤ K ≤ N rule, K = 1 / K = N boundaries, duplicate-point warning, colours+names for any K |
+| `tests/kn.test.mjs` | 29 | K and n have no fixed maximum, the 1 ≤ K ≤ N rule, K = 1 / K = N boundaries, duplicate-point warning, colours+names for any K, and the paired slider+box controls |
 | `tests/stroke.test.mjs` | 53 | pen one-press-one-point, spray cadence, stroke continuity, dab spacing, stabilizer |
 | `tests/render.test.mjs` | 41 | brush ring, highlight rings, grid vs zoom, SSE chart, drawing huge point counts |
-| **Total** | **241** | coverage: line **100%** · branch **97.5%** · funcs **97.1%** |
+| **Total** | **270** | coverage: line **97.8%** · branch **97.2%** · funcs **94.7%** |
 
 A further 34 checks run in a real headless browser (`tests/browser.smoke.mjs`) using real mouse and keyboard input,
 asserting only through the DOM:

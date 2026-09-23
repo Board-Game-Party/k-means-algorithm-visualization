@@ -48,6 +48,31 @@ export default async function run(page){
   await page.locator("#bGen").click();
   await setNum("#inK", 3);
 
+  /* 1c. feedback 4 — K and n each offer a slider AND a typed box, and they track each other */
+  ok("K has both a number box and a range slider",
+     (await page.locator("#inK").getAttribute("type")) === "number" &&
+     (await page.locator("#inKR").getAttribute("type")) === "range");
+  ok("n has both a number box and a range slider",
+     (await page.locator("#inN").getAttribute("type")) === "number" &&
+     (await page.locator("#inNR").getAttribute("type")) === "range");
+  await setNum("#inKR", 6);
+  ok("scrubbing the K slider drives K", (await txt("#stCent")).trim() === "0 / 6", await txt("#stCent"));
+  ok("scrubbing the K slider fills the K box", (await page.locator("#inK").inputValue()) === "6");
+  await setNum("#inK", 9);
+  ok("typing K moves the slider", (await page.locator("#inKR").inputValue()) === "9");
+  await setNum("#inK", 260);
+  ok("the K slider stretches instead of capping a typed K",
+     Number(await page.locator("#inKR").getAttribute("max")) >= 260 &&
+     (await page.locator("#inK").inputValue()) === "260",
+     await page.locator("#inKR").getAttribute("max"));
+  await setNum("#inNR", 60);
+  ok("scrubbing the n slider fills the n box", (await page.locator("#inN").inputValue()) === "60");
+  await page.locator("#bGen").click();
+  ok("a slider-set n really generates that many points", Math.abs((await num("#stN")) - 60) <= 8, await txt("#stN"));
+  await setNum("#inN", 150);
+  await page.locator("#bGen").click();
+  await setNum("#inK", 3);
+
   /* 2a0. pen — one press, one point (feedback 2) */
   await page.locator("#bClr").click();
   await page.locator("#inDens").evaluate(el => { el.value = "8"; el.dispatchEvent(new Event("input", { bubbles: true })); });

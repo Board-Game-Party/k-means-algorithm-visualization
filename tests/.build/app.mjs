@@ -9,6 +9,15 @@ const GREY   = "#64748b";
    1 ≤ K ≤ N (you cannot form more non-empty clusters than you have points), so the
    palette and the cluster names have to keep going for any K the user asks for. */
 const KMIN = 1;
+/* Feedback 4 asks for a slider AND a number box. A range input must declare a max, but K and n
+   must not be capped — so the box is the authority and the slider is only a scrubber over an
+   adaptive range. The top end starts at a comfortable default and ratchets up to whatever was
+   typed; it never shrinks, so the track cannot rescale under a thumb mid-drag, and it can never
+   clamp a typed value. */
+const KSLIDE = 20, NSLIDE = 1000;
+let kTop = KSLIDE, nTop = NSLIDE;
+const kSlideMax = () => (kTop = Math.max(kTop, S.k));
+const nSlideMax = () => (nTop = Math.max(nTop, readInt("inN", 150)));
 /** HSL → #rrggbb, so every cluster colour stays a hex string and the "+33" alpha suffixes keep working */
 function hslHex(h, s, l){
   const f = n => {
@@ -78,10 +87,9 @@ const sc = () => unit * V.z;             // pixels per logical unit, zoom includ
 const px = p => ({ x: ox + p.x * sc() + V.px, y: oy + plotH - p.y * sc() + V.py });
 const toLogical = (mx, my) => ({ x: (mx - ox - V.px) / sc(), y: (plotH - (my - oy - V.py)) / sc() });
 const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
-const inWorld = p => true;
 
-/* Keep the data frame from being panned off screen — always leave at least 60px visible */
-function clampPan() { markView(); }
+/* The canvas is infinite: there is no world boundary, so nothing clamps the pan and no
+   position is ever "out of bounds". Points are culled per frame in screen space instead. */
 /* Mirror the view state onto the DOM so external tests can read it without touching internals */
 function markView(){
   canvas.dataset.view = V.z.toFixed(3) + "," + V.px.toFixed(1) + "," + V.py.toFixed(1);
@@ -94,7 +102,7 @@ function zoomAt(mx, my, factor){
   V.z = z2;
   V.px = mx - ox - w.x * sc();
   V.py = my - (oy + plotH) + w.y * sc();
-  clampPan(); syncView();
+  syncView();
 }
 function resetView(){ V.z = 1; V.px = 0; V.py = 0; syncView(); }
 
@@ -133,16 +141,13 @@ function resize(){
   ox = padX; oy = padY;
   unit = plotH / LY;              // pixels per logical unit — identical on both axes
   LX   = plotW / unit;            // so the logical width stretches with the available space
-  clampToView(); clampPan();
+  markView();                     // infinite canvas: resizing never moves data or the pan
 
   const cr = chart.getBoundingClientRect();
   chart.width  = Math.max(1, Math.round(cr.width * dpr));
   chart.height = Math.max(1, Math.round(cr.height * dpr));
   cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-
-/* Shrinking the window narrows LX — pull stranded points back into view */
-function clampToView(){}
 
 /* ======================= DATA GENERATION ======================= */
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -643,7 +648,11 @@ function sync(){
 function syncBounds(){
   const N = S.points.length, k = S.k;
   $("lblK").textContent = k;
-  $("lblN").textContent = readInt("inN", 150);
+  const n = readInt("inN", 150);
+  $("lblN").textContent = n;
+  /* mirror the typed values onto the sliders — max first, so the value is never clamped on the way in */
+  $("inKR").max = kSlideMax(); $("inKR").value = k;
+  $("inNR").max = nSlideMax(); $("inNR").value = n;
   const bad = N > 0 && k > N;
   $("inK").classList.toggle("bad", bad);
   $("kNote").className = "note" + (bad ? " warn" : "");
@@ -652,7 +661,7 @@ function syncBounds(){
     : bad
       ? `K > N — needs ${k - N} more point${k - N === 1 ? "" : "s"} (N = ${N})`
       : `K ≤ N ✓ (N = ${N}${k === N ? ", K = N → SSE 0" : ""})`;
-  $("nNote").textContent = "no upper limit";
+  $("nNote").textContent = "no upper limit · slider reaches " + nTop;
 }
 
 const say = t => { $("msg").textContent = t; };   // the status line under the buttons — every warning the user must read lands here
@@ -709,7 +718,6 @@ function dab(x, y, exact){
       const r = rw * Math.pow(Math.random(), 0.75);          // exponent > 0.5 packs the ink toward the centre
       p = { x: c.x + Math.cos(a) * r, y: c.y + Math.sin(a) * r, c: -1 };
     }
-    if(!inWorld(p)) continue;
     S.points.push(p); added++;
   }
   return added;
@@ -735,7 +743,6 @@ function eraseAt(m){
    Holding and dragging is allowed, but points come out one at a time along the path */
 function penAt(m){
   const c = toLogical(m.x, m.y);
-  if(!inWorld(c)) return 0;
   S.points.push({ x: c.x, y: c.y, c: -1 });
   if(S.centroids.length) S.phase = "assign";
   return 1;
@@ -817,9 +824,8 @@ function afterCentroidEdit(msg){
   sync();
 }
 function spawnCentroid(w){
-  if(!inWorld(w)){ say("Centroids can only be placed inside the data frame"); return false; }
   if(S.centroids.length >= S.k){
-    say("⚠️ At most K = " + S.k + " centroids — raise the K slider, or delete one first (right-click it)");
+    say("⚠️ At most K = " + S.k + " centroids — raise K, or delete one first (right-click it)");
     return false;
   }
   S.centroids.push({ x: w.x, y: w.y, ax: w.x, ay: w.y, trail: [{ x: w.x, y: w.y }] });
@@ -888,7 +894,7 @@ function onMove(e){
   if(mode === "pan"){
     V.px = panFrom.px + (m.x - panFrom.mx);
     V.py = panFrom.py + (m.y - panFrom.my);
-    clampPan();
+    markView();                              // infinite canvas: the pan is never clamped
     return;
   }
   if(mode === "drag"){
@@ -988,8 +994,8 @@ $("bZoomRst").onclick = () => { resetView(); say("View reset to 100%"); };
 $("bFocus").onclick = () => { focusView(); say("Focused on data points"); };
 
 /* ======================= CONTROL EVENTS ======================= */
-$("inK").addEventListener("input", e => {
-  const raw = Math.round(+e.target.value);
+/* Typing and scrubbing run the exact same code — the slider just writes the box first */
+function applyK(raw){
   if(!Number.isFinite(raw) || raw < KMIN) return;            // mid-typing (blank / 0) — wait for a real value
   S.k = raw; $("lblK").textContent = S.k;
   if(!S.centroids.length) hardReset();                       // nothing started yet → plain reset
@@ -1001,12 +1007,22 @@ $("inK").addEventListener("input", e => {
     say("K = " + S.k + " · " + S.centroids.length + " centroids placed — add more with the 🎯 tool, or press Initialize to resample the whole set" + over);
     sync();
   }
+}
+$("inK").addEventListener("input", e => { applyK(Math.round(+e.target.value)); });
+$("inKR").addEventListener("input", e => {                   // scrubbing writes the box, then takes the same path
+  const v = Math.round(+e.target.value);
+  $("inK").value = v;
+  applyK(v);
 });
 $("inK").addEventListener("change", e => {                   // normalise whatever was left in the box
   const v = Math.max(KMIN, Math.round(+e.target.value) || KMIN);
   e.target.value = v; S.k = v; sync();
 });
 $("inN").addEventListener("input", () => { sync(); });
+$("inNR").addEventListener("input", e => {
+  $("inN").value = Math.round(+e.target.value);
+  sync();
+});
 $("inN").addEventListener("change", e => {
   e.target.value = Math.max(1, Math.round(+e.target.value) || 1);
   sync();
@@ -1030,11 +1046,12 @@ new ResizeObserver(() => { resize(); drawChart(); }).observe(canvas);
 window.__app = {
   S, V, TOOLS, COLORS, NAMES, LINEMAX, LEGENDMAX, EPS, SPEEDS, KMIN,
   colorFor, nameFor, hslHex, readInt, kCap, distinctPoints, kFeasible, syncBounds,
+  applyK, kSlideMax, nSlideMax, KSLIDE, NSLIDE,
   get LX(){ return LX; }, get LY(){ return LY; },
   get unit(){ return unit; }, get ox(){ return ox; }, get oy(){ return oy; },
   get plotW(){ return plotW; }, get plotH(){ return plotH; },
   get cw(){ return cw; }, get ch(){ return ch; },
-  px, toLogical, d2, inWorld, sc, clampPan, markView, zoomAt, resetView, syncView, clampToView,
+  px, toLogical, d2, sc, markView, zoomAt, resetView, syncView,
   gauss, rnd, clampPt, blob, sdFor, spreadCenters, generate,
   pickInitial, assignAll, meanUpdate, silentRun,
   doInit, doAssign, doUpdate, nextStep, runToCompletion, bestOfN, animateTo, hardReset,
