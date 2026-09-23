@@ -70,6 +70,8 @@ function makeCtx(){
     calls[name] = (calls[name] || 0) + 1;
     log.push([name, ...a]);
     if(name === "arc") calls._arcs = (calls._arcs || []).concat([a.slice(0, 3)]);
+    // snapshot the paint state at fill time — alpha/colour are properties, not calls, so the log alone loses them
+    if(name === "fill") calls._fills = (calls._fills || []).concat([{ alpha: c.globalAlpha === undefined ? 1 : c.globalAlpha, style: c.fillStyle }]);
   };
   const c = {
     __calls: calls, __log: log,

@@ -379,5 +379,58 @@ export default async function run(page){
   ok("a huge dataset still clusters to convergence", (await num("#stIter")) > 0 && (await num("#stSSE")) > 0,
      { iter: await txt("#stIter"), sse: await txt("#stSSE"), n: await txt("#stN") });
 
+  /* 8. cluster status click-to-focus (Memory/cluster_focus_feature.md) —
+        the delegated legend handlers only exist in a real DOM, so this is the only place they run */
+  await setNum("#inK", 3);
+  await setNum("#inN", 150);
+  await genData();
+  await page.locator('.tool[data-tool="brush"]').click();
+  await page.locator("#bInit").click();
+  await page.locator("#bRun").click();
+  await page.waitForFunction(() => document.getElementById("phaseName").textContent.includes("Converged"),
+                             null, { timeout: 20000 });
+  ok("the status bar renders one clickable item per cluster",
+     (await page.locator(".cluster-status-item").count()) === 3,
+     await page.locator(".cluster-status-item").count());
+  ok("the items look clickable", (await page.locator(".cluster-status-item").first().getAttribute("role")) === "button");
+
+  const viewBefore = await view();
+  await page.locator('.cluster-status-item[data-cluster="1"]').click();
+  await page.waitForTimeout(700);                       // the fly-through is 500ms
+  const viewAfter = await view();
+  ok("clicking a cluster flies the canvas somewhere new",
+     viewAfter.some((v, i) => Math.abs(v - viewBefore[i]) > 0.01),
+     { before: viewBefore, after: viewAfter });
+  ok("it zooms in rather than out", viewAfter[0] > viewBefore[0], { before: viewBefore[0], after: viewAfter[0] });
+  ok("the clicked cluster is marked active",
+     (await page.locator('.cluster-status-item[data-cluster="1"]').getAttribute("class")).includes("active"));
+  ok("the other clusters are dimmed",
+     (await page.locator('.cluster-status-item[data-cluster="0"]').getAttribute("class")).includes("dimmed") &&
+     (await page.locator('.cluster-status-item[data-cluster="2"]').getAttribute("class")).includes("dimmed"));
+  ok("the status line explains what happened", (await txt("#msg")).includes("Focused on"), await txt("#msg"));
+
+  await page.locator('.cluster-status-item[data-cluster="2"]').click();
+  await page.waitForTimeout(700);
+  ok("clicking a different cluster moves the focus instead of toggling",
+     (await page.locator('.cluster-status-item[data-cluster="2"]').getAttribute("class")).includes("active") &&
+     !(await page.locator('.cluster-status-item[data-cluster="1"]').getAttribute("class")).includes("active"));
+
+  await page.locator('.cluster-status-item[data-cluster="2"]').click();
+  await page.waitForTimeout(700);
+  ok("clicking the same cluster again releases the focus",
+     !(await page.locator('.cluster-status-item[data-cluster="2"]').getAttribute("class")).includes("active"));
+  ok("and nothing is left dimmed",
+     (await page.locator(".cluster-status-item.dimmed").count()) === 0,
+     await page.locator(".cluster-status-item.dimmed").count());
+  const viewOut = await view();
+  ok("zooming back out really widens the view", viewOut[0] < (await viewAfter)[0], { out: viewOut[0] });
+
+  await page.locator('.cluster-status-item[data-cluster="0"]').click();
+  await page.waitForTimeout(700);
+  await page.locator("#bInit").click();
+  ok("re-running k-means drops the focus",
+     (await page.locator(".cluster-status-item.active").count()) === 0,
+     await page.locator(".cluster-status-item.active").count());
+
   return { passed: checks.filter(c => c.startsWith("PASS")).length, failed: fail.length, checks, fail };
 }

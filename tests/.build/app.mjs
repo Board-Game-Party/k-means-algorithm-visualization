@@ -86,7 +86,8 @@ const S = {
   points: [], centroids: [],
   k: 3, phase: "idle", iter: 0, sse: null, maxMove: null,
   history: [], running: false, animating: false, initMethod: "random", speed: 1,
-  emptyFixed: 0
+  emptyFixed: 0,
+  focus: -1                      // cluster index the canvas is focused on, -1 = showing everything
 };
 
 window.S = S;   // expose state for debugging / automated verification
@@ -146,6 +147,83 @@ function focusView(){
 }
 
 function syncView(){ $("lblZoom").textContent = Math.round(V.z * 100) + "%"; markView(); }
+
+/* ======================= CLUSTER CLICK-TO-FOCUS =======================
+   Memory/cluster_focus_feature.md — clicking a cluster on the status bar flies the
+   view to that cluster's points and dims the rest; clicking it again flies back out. */
+const FOCUSMS = 500, FOCUSPAD = 0.15, DIMALPHA = 0.2, FOCUSZMAX = 4;
+let focusGen = 0;                // bumped by every new tween, so a superseded one stops itself
+                                 // (cancelAnimationFrame alone is not enough — a queued frame can still fire)
+
+/** World bounding box of one cluster's points, or null when it has none */
+function clusterBox(i){
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, n = 0;
+  for(const p of S.points){
+    if(p.c !== i) continue;
+    n++;
+    if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+    if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
+  }
+  return n ? { minX, maxX, minY, maxY, n } : null;
+}
+/** The {z, px, py} that fits a world box into the viewport with padding */
+function viewFor(minX, maxX, minY, maxY, pad = FOCUSPAD, zCap = ZMAX){
+  const pdX = (maxX - minX) * pad || 10, pdY = (maxY - minY) * pad || 10;
+  minX -= pdX; maxX += pdX; minY -= pdY; maxY += pdY;
+  const zx = plotW / ((maxX - minX) * unit), zy = plotH / ((maxY - minY) * unit);
+  const z = Math.min(ZMAX, zCap, Math.max(ZMIN, Math.min(zx, zy)));
+  const s = unit * z, cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  return { z, px: plotW / 2 - cx * s, py: cy * s - plotH / 2 };
+}
+/** Box around everything on the canvas — what "zoomed out" means */
+function allBox(){
+  const all = [...S.points, ...S.centroids];
+  if(!all.length) return null;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for(const p of all){
+    if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x;
+    if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y;
+  }
+  return { minX, maxX, minY, maxY };
+}
+/** Smooth pan + zoom to a view, easeInOutCubic over FOCUSMS. A newer call supersedes this one. */
+function tweenView(to){
+  const gen = ++focusGen;
+  const from = { z: V.z, px: V.px, py: V.py }, t0 = performance.now();
+  const tick = now => {
+    if(gen !== focusGen) return;                       // retargeted mid-flight — abandon this chain
+    const t = Math.min(1, (now - t0) / FOCUSMS);
+    const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;   // easeInOutCubic
+    V.z  = from.z  + (to.z  - from.z)  * e;
+    V.px = from.px + (to.px - from.px) * e;
+    V.py = from.py + (to.py - from.py) * e;
+    syncView(); render();
+    if(t < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+/** Click a cluster on the status bar: focus it, or unfocus if it is already the focused one */
+function focusCluster(i){
+  if(i < 0 || i >= S.centroids.length) return false;
+  if(S.focus === i){ clearFocus(); return true; }      // second click on the same cluster → back out
+  const box = clusterBox(i);
+  if(!box){ say(nameFor(i) + " has no points yet — nothing to focus on"); return false; }
+  S.focus = i;
+  sync();
+  tweenView(viewFor(box.minX, box.maxX, box.minY, box.maxY, FOCUSPAD, FOCUSZMAX));
+  say("Focused on " + nameFor(i) + " — " + box.n + " point" + (box.n === 1 ? "" : "s")
+      + " · other clusters dimmed · click it again to zoom back out");
+  return true;
+}
+/** Drop the focus and fly back to the overview */
+function clearFocus(animate = true){
+  if(S.focus < 0) return false;
+  S.focus = -1;
+  sync();
+  const b = allBox();
+  if(animate && b) tweenView(viewFor(b.minX, b.maxX, b.minY, b.maxY, 0.1));
+  return true;
+}
 
 function resize(){
   const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
@@ -347,6 +425,7 @@ function doInit(){
     sync(); return;
   }
   S.initMethod = $("inInit").value;
+  S.focus = -1;                                    // re-running k-means resets the focus (feature spec)
   S.points.forEach(p => p.c = -1);
   S.centroids = pickInitial(S.points, S.k, S.initMethod)
                   .map(c => ({ x: c.x, y: c.y, ax: c.x, ay: c.y, trail: [{ x: c.x, y: c.y }] }));
@@ -531,12 +610,15 @@ function render(){
     if(!list){ list = []; byCol.set(col, list); }
     list.push(a);
   }
+  const focusCol = S.focus >= 0 ? colorFor(S.focus) : null;   // focused cluster stays solid, the rest fade
   for(const [col, list] of byCol){
+    ctx.globalAlpha = focusCol && col !== focusCol ? DIMALPHA : 1;
     ctx.beginPath();
     for(const a of list){ ctx.moveTo(a.x + R, a.y); ctx.arc(a.x, a.y, R, 0, Math.PI * 2); }
     ctx.fillStyle = col; ctx.fill();
     if(outline){ ctx.lineWidth = 1; ctx.strokeStyle = "rgba(8,13,28,.85)"; ctx.stroke(); }
   }
+  ctx.globalAlpha = 1;
 
   if($("cbTrail").checked){
     ctx.setLineDash([4, 4]); ctx.lineWidth = 1.4;
@@ -695,13 +777,21 @@ function sync(){
   $("bRun").textContent = S.running ? "⏸ Stop" : "▶️ Run to Completion";
   $("bRun").disabled = S.points.length === 0 || (S.phase === "done" && !S.running);
 
+  if(S.focus >= S.centroids.length) S.focus = -1;   // K lowered, centroid deleted, data cleared → focus drops
   if(S.centroids.length){
     const counts = new Array(S.centroids.length).fill(0);
     for(const p of S.points) if(p.c >= 0 && p.c < counts.length) counts[p.c]++;
     const shown = Math.min(S.centroids.length, LEGENDMAX);        // K is unbounded — keep the legend readable
     let html = "";
-    for(let i = 0; i < shown; i++)
-      html += `<span class="flex items-center gap-1.5"><span style="background:${colorFor(i)}" class="w-2.5 h-2.5 rounded-full"></span>${nameFor(i)} <span class="mono opacity-60">${counts[i]}</span></span>`;
+    for(let i = 0; i < shown; i++){
+      const cls = "cluster-status-item flex items-center gap-1.5"
+                + (S.focus === i ? " active" : "")
+                + (S.focus >= 0 && S.focus !== i ? " dimmed" : "");
+      html += `<span class="${cls}" data-cluster="${i}" role="button" tabindex="0" style="--cc:${colorFor(i)}" `
+            + `title="Click to focus the canvas on ${nameFor(i)} — click again to zoom back out">`
+            + `<span style="background:${colorFor(i)}" class="w-2.5 h-2.5 rounded-full"></span>`
+            + `${nameFor(i)} <span class="mono opacity-60">${counts[i]}</span></span>`;
+    }
     if(S.centroids.length > shown)
       html += `<span class="opacity-70">+${S.centroids.length - shown} more clusters</span>`;
     $("legend").innerHTML = html;
@@ -758,6 +848,7 @@ const say = t => { $("msg").textContent = t; };   // the status line under the b
 
 function hardReset(){
   S.running = false; S.centroids = []; S.phase = "idle"; S.sel = -1;
+  S.focus = -1;                                    // a fresh run always starts from the overview
   S.iter = 0; S.sse = null; S.maxMove = null; S.history = [];
   S.points.forEach(p => p.c = -1);
   sync();
@@ -1087,7 +1178,21 @@ $("inStab").addEventListener("input",  e => { $("lblStab").textContent  = e.targ
 $("bZoomIn").onclick  = () => zoomAt(cw / 2, ch / 2, 1.25);
 $("bZoomOut").onclick = () => zoomAt(cw / 2, ch / 2, 1 / 1.25);
 $("bZoomRst").onclick = () => { resetView(); say("View reset to 100%"); };
-$("bFocus").onclick = () => { focusView(); say("Focused on data points"); };
+$("bFocus").onclick = () => { clearFocus(false); focusView(); say("Focused on data points"); };
+
+/* Click-to-focus on the cluster status bar — delegated, because sync() rebuilds the legend */
+$("legend").addEventListener("click", e => {
+  const el = e.target && e.target.closest && e.target.closest(".cluster-status-item");
+  if(!el) return;
+  focusCluster(+el.dataset.cluster);
+});
+$("legend").addEventListener("keydown", e => {
+  if(e.key !== "Enter" && e.key !== " ") return;
+  const el = e.target && e.target.closest && e.target.closest(".cluster-status-item");
+  if(!el) return;
+  if(e.preventDefault) e.preventDefault();
+  focusCluster(+el.dataset.cluster);
+});
 
 /* ======================= CONTROL EVENTS ======================= */
 /* Typing and scrubbing run the exact same code — the slider just writes the box first */
@@ -1162,6 +1267,7 @@ window.__app = {
   S, V, TOOLS, COLORS, NAMES, LINEMAX, LEGENDMAX, EPS, SPEEDS, KMIN,
   colorFor, nameFor, hslHex, readInt, kCap, distinctPoints, kFeasible, syncBounds,
   applyK, kSlideMax, nSlideMax, KSLIDE, NSLIDE, split, kQualityHint, raiseNfor, lowerKfor,
+  clusterBox, viewFor, allBox, tweenView, focusCluster, clearFocus, FOCUSMS, FOCUSPAD, DIMALPHA, FOCUSZMAX,
   get lastEmptyFixed(){ return lastEmptyFixed; },
   get LX(){ return LX; }, get LY(){ return LY; },
   get unit(){ return unit; }, get ox(){ return ox; }, get oy(){ return oy; },
