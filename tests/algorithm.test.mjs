@@ -432,7 +432,7 @@ describe("dataset presets", () => {
 
   test("the n and speed sliders update their labels", () => {
     input("inN", 320);
-    assert.equal(dom.el("lblN").textContent, "320");
+    assert.equal(dom.el("inN").value, "320", "the n box is the readout now that #lblN is gone");
     input("inSpd", 0);
     assert.equal(app.S.speed, 0);
     assert.equal(dom.el("lblSpd").textContent, "Slow");

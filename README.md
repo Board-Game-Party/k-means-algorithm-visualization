@@ -97,8 +97,11 @@ drawing stays smooth however much you paint.
   K = 1 gives the global mean; K = N puts every point on its own centroid and drives SSE to 0 — which is exactly why a
   low SSE on its own never proves a good K. Past the eight named clusters, colours keep going on a golden-angle hue
   sweep and names continue `Cluster I`, `Cluster J` … `Cluster AA`; the legend lists 24 and then says "+n more".
-- **n** — how many points *New random data* generates, also as **both a slider and a typed box**, with the
-  **🎲 New random data button sitting right underneath** so the value and the button that uses it stay together.
+- **n** — how many points 🎲 generates, as **both a slider and a typed box**. 🎲 is a **tool** (shortcut `R`)
+  in the same row as the pen and the brush, and n is *its option*, appearing in the toolbar only while 🎲 is
+  selected — exactly the way *Size* / *Flow* / *Smooth* appear for the brush. Press **Generate** in that panel,
+  or **`G`** from any tool. Selecting 🎲 never draws on the canvas: generating replaces the whole dataset, so
+  it stays an explicit act.
   Every preset generates **exactly** n points — not "about n" — because n is what N becomes and the K ≤ N rule has to
   answer for the number you actually typed. The note under it tells you in advance whether the pair works
   (`n ≥ K ✓ · generates exactly 150 points`, or `n < K — …`). **No fixed ceiling**: any integer ≥ 1; the slider
@@ -178,10 +181,10 @@ The suite **pulls the real `<script>` out of `index.html`** and runs it against 
 | `tests/view.test.mjs` | 36 | coordinate round-trips, zoom limits, unclamped panning on the infinite canvas, data staying put under pan/zoom |
 | `tests/algorithm.test.mjs` | 56 | assign/update/init/best-of-N/presets/animation, SSE falling every round, and empty-cluster repair |
 | `tests/tools.test.mjs` | 61 | brush, eraser, placing–dragging–deleting centroids, the K ceiling, the busy lock |
-| `tests/kn.test.mjs` | 59 | K and n have no fixed maximum, the 1 ≤ K ≤ distinct(N) and n ≥ K rules, K = 1 / K = N boundaries, colours+names for any K, the paired slider+box controls, the K track pinned to N, exact-n generation, the K ↔ n clamp, and the four warning bands |
+| `tests/kn.test.mjs` | 65 | K and n have no fixed maximum, the 1 ≤ K ≤ distinct(N) and n ≥ K rules, K = 1 / K = N boundaries, colours+names for any K, the paired slider+box controls, the K track pinned to N, exact-n generation, the K ↔ n clamp, and the four warning bands |
 | `tests/stroke.test.mjs` | 53 | pen one-press-one-point, spray cadence, stroke continuity, dab spacing, stabilizer |
 | `tests/render.test.mjs` | 41 | brush ring, highlight rings, grid vs zoom, SSE chart, drawing huge point counts |
-| **Total** | **306** | coverage: line **98.4%** · branch **97.1%** · funcs **96.3%** |
+| **Total** | **312** | coverage: line **98.4%** · branch **97.1%** · funcs **96.3%** |
 
 A further 34 checks run in a real headless browser (`tests/browser.smoke.mjs`) using real mouse and keyboard input,
 asserting only through the DOM:

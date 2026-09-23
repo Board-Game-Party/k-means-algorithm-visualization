@@ -178,3 +178,7 @@ function kQualityHint(K, N) {
 ## เมื่อเสร็จ
 
 สรุปว่าแก้ไฟล์ไหน ตรงไหน และ Task ไหนที่ข้ามหรือทำต่างจากแผน พร้อมเหตุผล
+## Feedback 6
+* move random button to tools bar and randompoint function this opption for randombutton tools
+## Feedback 7 
+* ให้ย้าย Radombuttonไป ในtoolsbar จริงๆเหมือน bush  หรือpen ส่วน fuction randompotion ให้เป็นเหมือนการปรับขนาดปากกานั้นแหละ เป็น optionของ Randombutton
