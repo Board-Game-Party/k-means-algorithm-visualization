@@ -16,7 +16,7 @@ export default async function run(page){
   /* 1. boot */
   ok("data points exist after load", (await num("#stN")) > 0, await txt("#stN"));
   ok("the canvas has a real size", box.width > 100 && box.height > 100, box);
-  ok("all 6 tool buttons are present", (await page.locator(".tool").count()) === 6);
+  ok("all 7 tool buttons are present", (await page.locator(".tool").count()) === 7, await page.locator(".tool").count());
   ok("the centroid counter shows m / k", /^\d+ \/ \d+$/.test((await txt("#stCent")).trim()), await txt("#stCent"));
   ok("the view starts at 100%", (await txt("#lblZoom")).trim() === "100%");
 
@@ -26,6 +26,11 @@ export default async function run(page){
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
   }, v);
+  /* feedback 7: Generate lives inside the 🎲 tool panel, so selecting the tool is part of generating */
+  const genData = async () => {
+    await page.locator(String.raw`.tool[data-tool="random"]`).click();
+    await page.locator("#randOpts #bGen").click();
+  };
   /* mid-typing only — no "change", so the feedback-6 commit clamp does not fire */
   const typeNum = async (sel, v) => page.locator(sel).evaluate((el, val) => {
     el.value = String(val);
@@ -42,7 +47,7 @@ export default async function run(page){
   ok("the legend names all 12 clusters", (await page.locator("#legend span").count()) >= 12);
   await setNum("#inK", 1);
   await setNum("#inN", 9);
-  await page.locator("#bGen").click();
+  await genData();
   ok("n = 9 generates a handful of points, not a fixed minimum", (await num("#stN")) <= 12, await txt("#stN"));
   await typeNum("#inK", 12);                             // typed, not committed — K may exceed N
   ok("K = 12 > N = 9 is flagged", (await txt("#kNote")).includes("K > distinct positions"), await txt("#kNote"));
@@ -52,7 +57,7 @@ export default async function run(page){
   ok("K = N is allowed and noted", (await txt("#kNote")).includes("K = N"), await txt("#kNote"));
   ok("Initialize is enabled again at K = N", !(await page.locator("#bInit").isDisabled()));
   await setNum("#inN", 150);
-  await page.locator("#bGen").click();
+  await genData();
   await setNum("#inK", 3);
 
   /* 1c. feedback 4 — K and n each offer a slider AND a typed box, and they track each other */
@@ -73,10 +78,10 @@ export default async function run(page){
      await page.locator("#inK").inputValue());
   await setNum("#inNR", 60);
   ok("scrubbing the n slider fills the n box", (await page.locator("#inN").inputValue()) === "60");
-  await page.locator("#bGen").click();
+  await genData();
   ok("a slider-set n really generates that many points", Math.abs((await num("#stN")) - 60) <= 8, await txt("#stN"));
   await setNum("#inN", 150);
-  await page.locator("#bGen").click();
+  await genData();
   await setNum("#inK", 3);
 
   /* 1d. feedback 5 — K and the data points relate the way the theory says */
@@ -88,12 +93,12 @@ export default async function run(page){
   for(const [kind, n] of [["blobs", 7], ["sizes", 33], ["density", 100], ["rings", 45], ["outliers", 61]]){
     await page.locator("#inData").selectOption(kind);      // selecting a preset regenerates
     await setNum("#inN", n);
-    await page.locator("#bGen").click();
+    await genData();
     ok(`the ${kind} preset generates exactly n = ${n} points`, (await num("#stN")) === n, await txt("#stN"));
   }
   await page.locator("#inData").selectOption("blobs");
   await setNum("#inN", 40);
-  await page.locator("#bGen").click();
+  await genData();
   ok("the K slider's top end is N, the data-point count",
      (await page.locator("#inKR").getAttribute("max")) === "40",
      await page.locator("#inKR").getAttribute("max"));
@@ -116,7 +121,7 @@ export default async function run(page){
   /* the feedback-5 examples, literally: N = 999 → 999, N = 696 → 696 */
   for(const N of [999, 696]){
     await setNum("#inN", N);
-    await page.locator("#bGen").click();
+    await genData();
     ok(`N = ${N} generates exactly ${N} points`, (await num("#stN")) === N, await txt("#stN"));
     ok(`with N = ${N} the K track stops at ${N}`,
        (await page.locator("#inKR").getAttribute("max")) === String(N),
@@ -129,19 +134,47 @@ export default async function run(page){
     ok(`K = N = ${N} is a legal clustering`, !(await page.locator("#bInit").isDisabled()));
   }
   await setNum("#inN", 40);
-  await page.locator("#bGen").click();
+  await genData();
   await setNum("#inK", 3);
   await typeNum("#inN", 2);                              // typed, not committed — n may sit below K
   ok("the n control leads the warning with the rule that must hold",
      (await txt("#nNote")).startsWith("Need n ≥ K"), await txt("#nNote"));
   ok("New random data is disabled while n < K", await page.locator("#bGen").isDisabled());
   await setNum("#inN", 150);
-  await page.locator("#bGen").click();
+  await genData();
+  await setNum("#inK", 3);
+
+  /* 1d2. feedback 7 — 🎲 is a real tool, and n is its option the way Size is the brush's */
+  ok("🎲 sits in the tool group with the pen and the brush",
+     (await page.locator('.tool[data-tool="random"]').count()) === 1);
+  await page.locator('.tool[data-tool="brush"]').click();
+  ok("with the brush selected, the brush options show and the 🎲 options do not",
+     (await page.locator("#brushOpts").isVisible()) && !(await page.locator("#randOpts").isVisible()));
+  await page.locator('.tool[data-tool="random"]').click();
+  ok("selecting 🎲 swaps in its own option panel",
+     (await page.locator("#randOpts").isVisible()) && !(await page.locator("#brushOpts").isVisible()));
+  ok("🎲 is the active tool, shown as such",
+     (await page.locator('.tool[data-tool="random"]').getAttribute("class")).includes("on"));
+  ok("n and its slider are inside that panel",
+     (await page.locator("#randOpts #inN").count()) === 1 && (await page.locator("#randOpts #inNR").count()) === 1);
+  ok("so is the Generate button", (await page.locator("#randOpts #bGen").count()) === 1);
+  ok("the 🎲 hint explains the option", (await txt("#toolHint")).includes("Random data"), await txt("#toolHint"));
+  {
+    const before = await num("#stN");
+    await page.mouse.click(cx, cy);
+    ok("clicking the canvas with 🎲 selected adds nothing — it is not a drawing tool",
+       (await num("#stN")) === before, await txt("#stN"));
+  }
+  await setNum("#inK", 1);
+  await setNum("#inN", 77);
+  await page.locator("#randOpts #bGen").click();
+  ok("Generate inside the panel really generates exactly n", (await num("#stN")) === 77, await txt("#stN"));
+  await page.locator('.tool[data-tool="brush"]').click();
   await setNum("#inK", 3);
 
   /* 1e. feedback 6 — the n / K conditions and k-means robustness */
   await setNum("#inN", 1936);
-  await page.locator("#bGen").click();
+  await genData();
   ok("N = 1936 generated exactly", (await num("#stN")) === 1936, await txt("#stN"));
   ok("the n track always reaches at least as far as the K track",
      Number(await page.locator("#inNR").getAttribute("max")) >= Number(await page.locator("#inKR").getAttribute("max")),
@@ -171,7 +204,7 @@ export default async function run(page){
      await page.locator("#inN").inputValue());
   /* task 6 — a stranded centroid must not poison SSE or MAX MOVE */
   await setNum("#inN", 400);
-  await page.locator("#bGen").click();
+  await genData();
   await setNum("#inK", 6);
   await page.locator("#bInit").click();
   await page.locator("#bRun").click();
@@ -183,7 +216,7 @@ export default async function run(page){
   ok("no NaN anywhere in the stats bar",
      !(await page.locator(".card2").allInnerTexts()).join(" ").includes("NaN"));
   await setNum("#inN", 150);
-  await page.locator("#bGen").click();
+  await genData();
   await setNum("#inK", 3);
 
   /* 2a0. pen — one press, one point (feedback 2) */

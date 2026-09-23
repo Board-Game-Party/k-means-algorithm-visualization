@@ -111,7 +111,7 @@ el("inInit", { tagName: "SELECT", value: "random", options: [
   { value: "random",   text: "Random" },
   { value: "farthest", text: "Farthest-first" }
 ]});
-for(const id of ["lblK","lblN","lblSpd","lblBrush","lblDens","lblZoom","phaseName","phaseDot","infoTitle",
+for(const id of ["lblK","lblSpd","lblBrush","lblDens","lblZoom","phaseName","phaseDot","infoTitle",
                  "infoDesc","infoMath","stIter","stN","stSSE","stMove","stCent","legend","msg","histTxt",
                  "toolHint","brushOpts","densOpt","stabOpt","lblStab","lnHint","kNote","nNote"]) el(id, {});
 for(const id of ["bGen","bClr","bInit","bStep","bRun","bBest","bReset","bZoomIn","bZoomOut","bZoomRst"])
@@ -119,7 +119,7 @@ for(const id of ["bGen","bClr","bInit","bStep","bRun","bBest","bReset","bZoomIn"
 
 /* .pc = pseudocode lines, .tool = the canvas tool buttons */
 const pcs   = [1,2,3,4,5].map(n => new El("pc" + n, { className: "pc off", dataset: { line: String(n) } }));
-const tools = ["pen","spray","brush","eraser","hand","centroid"].map(t =>
+const tools = ["pen","spray","brush","eraser","hand","centroid","random"].map(t =>
   new El("tool-" + t, { className: "tool", tagName: "BUTTON", dataset: { tool: t } }));
 
 const windowHandlers = {};

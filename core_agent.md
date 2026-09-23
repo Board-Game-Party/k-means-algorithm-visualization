@@ -81,14 +81,21 @@ Two sources, two different jobs. Never mix them up.
        เราจะลากเกินไม่ได้."* Dragging simply cannot reach an infeasible K.
        Typing still wins for the **value** (feedback 3): a K above N stays in the box, turns it red and
        blocks `Initialize` — the thumb just pins at the top end, because a thumb position past N would
-       depict a clustering the theory does not allow. `kSlideMax()` is `S.points.length || KSLIDE` and
-       depends on nothing else, so the track cannot rescale under a thumb mid-drag either.
+       depict a clustering the theory does not allow. `kSlideMax()` is `kCap() || KSLIDE` — the distinct
+       count since feedback 6 task 5 — and depends on nothing else, so the track cannot rescale under a
+       thumb mid-drag either.
      - **`n` is what `N` will become, so it must be exact (feedback 5).** `New random data` generates
        **exactly** n points for every preset — largest-remainder `split()`, never `Math.round(n / g)` per
        blob. "Roughly n" silently changes whether a given K is legal. The n control also reports ahead of
        time whether the pair will satisfy the rule (`n ≥ K ✓ · generates exactly n points` / `n < K — …`).
-     - **`n` and its button live together (feedback 5):** `🎲 New random data` sits inside the
-       `Random points (n)` group, between the slider and its note — not adrift in the button row.
+     - **`🎲` is a real tool and `n` is its tool option (feedback 5 → 6 → 7).** Feedback 5 required the
+       value and its button to stay adjacent; feedback 6 moved them into the tools bar; **feedback 7 settled
+       the form**: `🎲` is a `.tool` button in the same group as the pen and the brush (`data-tool="random"`,
+       shortcut `R`), and `#randOpts` — `n` box + `n` slider + `🎲 Generate` + `#nNote` — is its option
+       panel, shown **only while that tool is active**, in the very slot `#brushOpts` uses. Exactly the way
+       `Size` belongs to the brush.
+       The tool is deliberately inert on the canvas: selecting it draws nothing, because generating replaces
+       the whole dataset and must stay an explicit act (`Generate`, or `G` from any tool).
      - **The n track must always reach the K track (feedback 6, task 2).** `nSlideMax() ≥ kSlideMax()`
        always, or a user stuck at `K > n` could not drag n up to escape — a dead-end control.
      - **Possible is not the same as meaningful (feedback 6, task 7).** Beyond the hard rule, `kQualityHint()`
@@ -101,7 +108,7 @@ Two sources, two different jobs. Never mix them up.
        repair can never empty another cluster. With nothing to spare the centroid holds position. The count
        is surfaced in the step message and accumulated on `S.emptyFixed`.
      - Cluster colours and names must be generated, not indexed out of a fixed 8-entry table — any K gets a distinct colour (golden-angle hues after the 8 base ones) and a name (A…Z, AA, AB…). The legend lists up to `LEGENDMAX` and then says "+n more".
-   - **Tool state:** one explicit active tool (`Pen` / `Spray` / `Brush` / `Eraser` / `Hand` / `Centroid`) shown in the UI, switchable by click and by keyboard shortcut. Editing tools are disabled (not silently ignored) while an animation is running.
+   - **Tool state:** one explicit active tool (`Pen` / `Spray` / `Brush` / `Eraser` / `Hand` / `Centroid` / `Random`) shown in the UI, switchable by click and by keyboard shortcut (`P` `S` `B` `E` `H` `C` `R`). Editing tools — `Random` included — are disabled (not silently ignored) while an animation is running; only `Hand` stays live.
 5. **Technical Constraints:**
    - Build a Single Page Application (SPA).
    - Use HTML5, CSS (Tailwind CSS via CDN is allowed), and Vanilla JavaScript (HTML5 Canvas or lightweight libraries like Chart.js via CDN).
@@ -114,7 +121,7 @@ Two sources, two different jobs. Never mix them up.
 
 ---
 
-## ✅ Delivery Status — REVISION 2 DONE (Feedback 1–6 closed)
+## ✅ Delivery Status — REVISION 2 DONE (Feedback 1–7 closed)
 
 | item | value |
 |---|---|
@@ -122,8 +129,8 @@ Two sources, two different jobs. Never mix them up.
 | Docs | `README.md` |
 | Rev 1 | ✅ delivered — verified in headless browser: 0 console errors, 0 failed requests, SSE monotonically decreasing, assignments = nearest centroid, centroids = cluster means |
 | Rev 2 | ✅ delivered — class feedback (`Memory/feedback.md`) implemented, see §4 |
-| Tests | `npm test` → 306 unit tests, **306 pass / 0 fail** · coverage line 98.4% / branch 97.1% / funcs 96.3% |
-| Browser QA | `npm run verify:browser` → 84/84, 0 console errors, 0 failed requests |
+| Tests | `npm test` → 312 unit tests, **312 pass / 0 fail** · coverage line 98.4% / branch 97.1% / funcs 96.3% |
+| Browser QA | `npm run verify:browser` → 93/93, 0 console errors, 0 failed requests |
 
 ### Canvas semantics — settled: the canvas is infinite
 
@@ -194,7 +201,7 @@ never be silently rewritten, and only an adaptive, ratcheting slider range can h
 | 3 | "random point value and button generate random data point should live closely" — **exactness**: n is what N becomes, so the rule must answer for the number actually typed | ☑ **real bug fixed** — every preset missed n by ±1 (`Math.round(n / g)` per blob). New largest-remainder `split()`. `kn.test.mjs` › "every preset generates EXACTLY n points, not roughly n" (45 combinations) + "split() hands out exactly the total it was given" + "an exact n means the K ≤ N rule answers for the number the user actually typed" |
 | 4 | "…should live closely" — **proximity**: the button belongs with the value it reads | ☑ `🎲 New random data` moved into the `Random points (n)` group; `kn.test.mjs` › "the generate button lives with the n control it reads, not off in the button row" + a browser check on the live DOM |
 | 5 | the n control states the K relationship before you press the button | ☑ `kn.test.mjs` › "the n control says up front whether n will support the current K" |
-| 6 | "slider bar ให้ K กับ data point relate กัน · Data point = 999 → ลากได้แค่ 999 · = 696 → ≤ 696 · **ลากเกินไม่ได้**" | ☑ `kSlideMax()` = `S.points.length \|\| KSLIDE` — the track is N and never stretches past it; `kn.test.mjs` › "the feedback-5 examples hold literally: N = 999 → drag to 999, N = 696 → drag to 696" + "the track is exactly N throughout — before, during and after a typed overshoot" + "the far end of the K track is the largest legal K, never an infeasible one" + browser checks that push the thumb past the end at both 999 and 696 and watch it clamp |
+| 6 | "slider bar ให้ K กับ data point relate กัน · Data point = 999 → ลากได้แค่ 999 · = 696 → ≤ 696 · **ลากเกินไม่ได้**" | ☑ `kSlideMax()` = `kCap() \|\| KSLIDE` — the track is the distinct count and never stretches past it; `kn.test.mjs` › "the feedback-5 examples hold literally: N = 999 → drag to 999, N = 696 → drag to 696" + "the track is exactly N throughout — before, during and after a typed overshoot" + "the far end of the K track is the largest legal K, never an infeasible one" + browser checks that push the thumb past the end at both 999 and 696 and watch it clamp |
 
 **Both readings implemented.** "Should live closely" is ambiguous between *proximity* (put the button next
 to the box) and *agreement* (the generated count should match the value). Both were true problems — the
@@ -212,7 +219,7 @@ scrubbing coarse at large N (at N = 999, K = 3 sits ~0.3% along the track). The 
 and is still uncapped. This is the user's explicit instruction, so it stays; if the coarseness ever outweighs
 the bound, a non-linear (log) track would keep both.
 
-### Feedback 6 checklist (`Memory/feedback.md` §"แก้เงื่อนไข n / K …")
+### n / K conditions checklist (`Memory/feedback.md` §"งาน: แก้เงื่อนไข n / K …")
 
 Rules restated by this feedback: `1 ≤ K ≤ distinct(N)` and `n ≥ K`.
 
@@ -254,6 +261,46 @@ real cost against the "unlimited points" requirement. It is memoised on (array i
 that changes the data either replaces the array or changes its length, and nothing mutates a point's x/y in
 place, so the cache cannot go stale — guarded by `kn.test.mjs` › "…memoised but never goes stale".
 
+### Feedback 6 checklist (`Memory/feedback.md` §Feedback 6)
+
+| # | feedback item | status |
+|---|---|---|
+| 1 | "move random button to tools bar" | ☑ `#bGen` moved out of the controls grid into `.toolbar` · `kn.test.mjs` › "the random group sits in the tools bar, not in the controls grid" |
+| 2 | "randompoint function this opption for randombutton tools" — n becomes the button's own option | ☑ `#randOpts` holds `#bGen` + `#inN` + `#inNR` together, mirroring how `Size`/`Flow`/`Smooth` are the brush's options · `kn.test.mjs` › "the generate button lives with the n control it reads, not off in the button row" (rewritten to assert **containment in `#randOpts`** rather than source ordering) |
+| 3 | …without making 🎲 a canvas mode | ❌ **reversed by feedback 7** — this was my reading, not the user's. See the feedback 7 checklist below. |
+
+**Assumption stated — and it was wrong.** I read "option for random button tools" as *keep 🎲 an action
+button and park n beside it*, explicitly rejecting the seventh-tool reading because it costs an extra click.
+Feedback 7 corrected that: the user wants the literal tool form. The extra click was the user's to weigh, not
+mine to rule out. Recorded here rather than quietly overwritten — the misread is the useful part.
+
+**Knock-on cleanups:** `#lblN` was a duplicate readout of the n box and is gone, along with its stub entry in
+`tests/dom.mjs` — a stub id the real page lacks would let a test pass against an element the browser returns
+as `null`. The freed grid column went to `Clusters (K)` (`lg:col-span-2`), which also widens the K track and
+softens the scrubbing-coarseness trade-off noted under feedback 5. `G` generates from the keyboard, and says
+why when `n < K` blocks it.
+
+### Feedback 7 checklist (`Memory/feedback.md` §Feedback 7)
+
+> "ให้ย้าย Radombutton ไป ในtoolsbar **จริงๆเหมือน bush หรือpen** ส่วน fuction randompotion ให้เป็น
+> **เหมือนการปรับขนาดปากกา** นั่นแหละ เป็น optionของ Randombutton"
+
+| # | feedback item | status |
+|---|---|---|
+| 1 | 🎲 must be a real tool button, like the brush or the pen — not an action parked in the bar | ☑ `<button class="tool" data-tool="random">` in the same group, `TOOLS.random`, shortcut `R` · `kn.test.mjs` › "🎲 is a real tool button, sitting with the pen and the brush" (`.tool` count is now **7**) |
+| 2 | n must behave like the pen/brush size option — an option **of** that tool | ☑ `#randOpts` sits beside `#brushOpts` and is shown only while 🎲 is active, by the same `sync()` line · `kn.test.mjs` › "n behaves like the brush's Size: shown only while its tool is active" + "n, its slider and Generate all live in the 🎲 tool's own option group" |
+| 3 | the tool must behave like a tool in every other respect | ☑ selectable by click and by `R`, shown as `.on`, disabled mid-run like the other editing tools · `kn.test.mjs` › "the R shortcut selects the 🎲 tool, and G still generates" + "🎲 is disabled mid-run like every other editing tool" + "selecting 🎲 leaves the canvas alone — it is not a drawing tool" |
+
+**This reverses my feedback-6 judgement, at the user's explicit direction.** I had argued against the seventh
+tool because it puts a click between the user and `Generate`. That cost is real and is now paid: with any
+other tool active, `#randOpts` (and therefore `Generate`) is hidden, so generating means selecting 🎲 first.
+Two mitigations keep it cheap — `G` generates from **any** tool, and `R` selects 🎲 in one keystroke.
+
+**The browser suite proved the cost rather than hiding it.** Twelve existing checks called
+`page.locator("#bGen").click()` with another tool active and began timing out on a hidden element — the
+suite failing exactly where a user would now have to change tools. They were routed through a `genData()`
+helper that selects 🎲 first, which is the honest encoding of the new flow.
+
 ### K / n ceiling removal checklist
 
 | # | item | status |
@@ -294,7 +341,7 @@ place, so the cache cannot go stale — guarded by `kn.test.mjs` › "…memoise
 |---|---|---|
 | extract | `tests/extract.mjs` | pulls the real inline `<script>` out of `index.html` into an ESM module — **the tests run the shipped code, never a copy** |
 | browser stub | `tests/dom.mjs` | minimal DOM + canvas stub that records every draw call with its arguments |
-| unit | `tests/{view,algorithm,tools,stroke,render,kn}.test.mjs` | 306 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines, rendering, the K/n controls and empty-cluster repair |
+| unit | `tests/{view,algorithm,tools,stroke,render,kn}.test.mjs` | 312 `node:test` assertions over geometry, k-means core, tool interaction, the pen/stroke/spray engines, rendering, the K/n controls and empty-cluster repair |
 | e2e | `tests/browser.smoke.mjs` | real headless browser, real mouse/keyboard, asserts through the DOM only |
 
 Run: `npm test` (fails the build below line 90% / branch 85% / funcs 90%) · `npm run test:quick` for a fast loop.

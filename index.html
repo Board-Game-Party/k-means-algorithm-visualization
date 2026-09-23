@@ -51,6 +51,9 @@
   input[type=number]:focus{outline:none;border-color:var(--accent)}
   input[type=number].bad{border-color:#f87171;background:#2a1520}
   /* Feedback 4: every numeric control is a typed box AND a slider, side by side */
+  .randgrp{display:flex;align-items:center;gap:.45rem}
+  .randgrp input[type=number]{width:4.1rem;padding:.2rem .35rem;font-size:.76rem}
+  .randgrp input[type=range]{width:5.5rem}
   .pair{display:flex;align-items:center;gap:.4rem}
   .pair input[type=number]{width:4.4rem;flex:0 0 auto}
   .pair input[type=range]{flex:1 1 auto;min-width:0}
@@ -110,6 +113,19 @@
           <button class="tool" data-tool="centroid" title="Centroid tool (C)">🎯</button>
           <button class="tool" data-tool="eraser"   title="Eraser (E)">🧽</button>
           <button class="tool" data-tool="hand"     title="Pan the view (H, middle mouse, or Space+drag)">✋</button>
+          <button class="tool" data-tool="random"   title="Random data — pick n beside the bar, then Generate (R)">🎲</button>
+        </div>
+
+        <!-- feedback 7: 🎲 is a real tool, and n is its option the way Size is the brush's -->
+        <div id="randOpts" class="randgrp text-[11px]">
+          <label class="flex items-center gap-1" title="How many points 🎲 generates — the n in the n ≥ K rule">n
+            <input id="inN" type="number" min="1" step="1" value="150"
+                   title="How many points 🎲 Random data generates. Any integer n ≥ 1 — no fixed ceiling.">
+            <input id="inNR" type="range" min="1" step="1" value="150" aria-label="Random points (n) slider"
+                   title="Drag to scrub n. The track always reaches at least as far as the K track, so you can never get stuck below K.">
+          </label>
+          <button id="bGen" class="mini" title="Generate exactly n random points from the dataset preset (G)">🎲 Generate</button>
+          <span id="nNote" class="note"></span>
         </div>
 
         <div id="brushOpts" class="flex items-center gap-2 text-[11px]">
@@ -153,7 +169,7 @@
 
       <!-- Controls -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-2">
-        <div>
+        <div class="lg:col-span-2">
           <div class="flex justify-between text-[11px] mb-0.5"><span class="font-semibold">Clusters (K)</span><span id="lblK" class="mono text-[var(--accent)]">3</span></div>
           <div class="pair">
             <input id="inK" type="number" min="1" step="1" value="3"
@@ -162,18 +178,6 @@
                    title="Drag to scrub K between 1 and N, the data-point count — the track stops at N because K &gt; N is not a legal clustering. Typing still wins: a K above N stays in the box, flagged, with Initialize refusing.">
           </div>
           <div id="kNote" class="note"></div>
-        </div>
-        <div>
-          <div class="flex justify-between text-[11px] mb-0.5"><span class="font-semibold">Random points (n)</span><span id="lblN" class="mono text-[var(--accent)]">150</span></div>
-          <div class="pair">
-            <input id="inN" type="number" min="1" step="1" value="150"
-                   title="How many points “New random data” generates. Any integer n ≥ 1 — no fixed ceiling.">
-            <input id="inNR" type="range" min="1" step="1" value="150" aria-label="Random points (n) slider"
-                   title="Drag to scrub n. The slider's top end stretches to whatever you type — the number box is the authority and has no ceiling.">
-          </div>
-          <button id="bGen" class="btn w-full mt-1 py-1 text-[11px]"
-                  title="Generate exactly n random points using the dataset preset below">🎲 New random data</button>
-          <div id="nNote" class="note"></div>
         </div>
         <div>
           <div class="flex justify-between text-[11px] mb-0.5"><span class="font-semibold">Speed</span><span id="lblSpd" class="mono text-[var(--accent)]">Normal</span></div>
@@ -972,6 +976,7 @@ function sync(){
   $("lnHint").textContent = S.points.length > LINEMAX ? " · auto-off, too many points" : "";
   const painter = S.tool === "brush" || S.tool === "eraser" || S.tool === "spray";
   $("brushOpts").style.display = painter ? "" : "none";
+  $("randOpts").style.display  = S.tool === "random" ? "" : "none";   // n is the 🎲 tool's own option
   $("densOpt").style.display = S.tool === "eraser" ? "none" : "";   // flow means nothing for the eraser
   $("stabOpt").style.display = S.tool === "spray" ? "none" : "";    // the spray does not use the stabilizer
   $("toolHint").textContent = TOOLS[S.tool].hint;
@@ -1016,7 +1021,6 @@ function syncBounds(){
   const N = S.points.length, dp = kCap(), k = S.k;
   $("lblK").textContent = k;
   const n = readInt("inN", 150);
-  $("lblN").textContent = n;
   /* mirror the typed values onto the sliders — max first, so the value is never clamped on the way in */
   const kMax = kSlideMax();
   $("inKR").max = kMax; $("inKR").value = Math.min(k, kMax);   // a K past the cap pins the thumb; the box keeps the truth
@@ -1069,7 +1073,8 @@ const TOOLS = {
   brush:    { cursor:"crosshair", hint:"🖌️ Brush — drag to paint a continuous stroke · tune Size, Flow and Smooth (stabilizer) in the bar above" },
   eraser:   { cursor:"crosshair", hint:"🧽 Eraser — drag to remove every point inside the ring, using the same stroke engine as the brush" },
   hand:     { cursor:"grab",      hint:"✋ Hand — drag to pan · mouse wheel to zoom · middle mouse or Space+drag pans from any tool" },
-  centroid: { cursor:"pointer",   hint:"🎯 Centroid — drag to move · click empty space to add one (up to K) · right-click or Delete to remove" }
+  centroid: { cursor:"pointer",   hint:"🎯 Centroid — drag to move · click empty space to add one (up to K) · right-click or Delete to remove" },
+  random:   { cursor:"default",   hint:"🎲 Random data — set n in the bar above (its option, like the brush's Size), then press Generate or G · the canvas is left alone until you do" }
 };
 const LINEMAX = 2000;        // past this many points the connector lines switch off so drawing stays smooth (the point count itself is unlimited)
 const LEGENDMAX = 24;        // K itself is unbounded; the legend just stops listing past this and shows "+n more"
@@ -1351,6 +1356,7 @@ function onKey(e){
   else if(k === "e") setTool("eraser");
   else if(k === "h") setTool("hand");
   else if(k === "c") setTool("centroid");
+  else if(k === "r") setTool("random");
   else if(e.key === "Delete" || e.key === "Backspace"){
     if(busy()) say(BUSYMSG);
     else if(S.sel >= 0) deleteCentroid(S.sel);
@@ -1360,6 +1366,10 @@ function onKey(e){
   else if(e.key === "-" || e.key === "_") zoomAt(cw / 2, ch / 2, 1 / 1.25);
   else if(e.key === "0") resetView();
   else if(k === "f") focusView();
+  else if(k === "g"){                                   // feedback 6: the random button is a tool-bar action now
+    if($("bGen").disabled) say("🎲 needs n ≥ K first — raise n or lower K");
+    else generate();
+  }
 }
 
 canvas.addEventListener("pointerdown", onDown);

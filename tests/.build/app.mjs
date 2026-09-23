@@ -673,6 +673,7 @@ function sync(){
   $("lnHint").textContent = S.points.length > LINEMAX ? " · auto-off, too many points" : "";
   const painter = S.tool === "brush" || S.tool === "eraser" || S.tool === "spray";
   $("brushOpts").style.display = painter ? "" : "none";
+  $("randOpts").style.display  = S.tool === "random" ? "" : "none";   // n is the 🎲 tool's own option
   $("densOpt").style.display = S.tool === "eraser" ? "none" : "";   // flow means nothing for the eraser
   $("stabOpt").style.display = S.tool === "spray" ? "none" : "";    // the spray does not use the stabilizer
   $("toolHint").textContent = TOOLS[S.tool].hint;
@@ -717,7 +718,6 @@ function syncBounds(){
   const N = S.points.length, dp = kCap(), k = S.k;
   $("lblK").textContent = k;
   const n = readInt("inN", 150);
-  $("lblN").textContent = n;
   /* mirror the typed values onto the sliders — max first, so the value is never clamped on the way in */
   const kMax = kSlideMax();
   $("inKR").max = kMax; $("inKR").value = Math.min(k, kMax);   // a K past the cap pins the thumb; the box keeps the truth
@@ -770,7 +770,8 @@ const TOOLS = {
   brush:    { cursor:"crosshair", hint:"🖌️ Brush — drag to paint a continuous stroke · tune Size, Flow and Smooth (stabilizer) in the bar above" },
   eraser:   { cursor:"crosshair", hint:"🧽 Eraser — drag to remove every point inside the ring, using the same stroke engine as the brush" },
   hand:     { cursor:"grab",      hint:"✋ Hand — drag to pan · mouse wheel to zoom · middle mouse or Space+drag pans from any tool" },
-  centroid: { cursor:"pointer",   hint:"🎯 Centroid — drag to move · click empty space to add one (up to K) · right-click or Delete to remove" }
+  centroid: { cursor:"pointer",   hint:"🎯 Centroid — drag to move · click empty space to add one (up to K) · right-click or Delete to remove" },
+  random:   { cursor:"default",   hint:"🎲 Random data — set n in the bar above (its option, like the brush's Size), then press Generate or G · the canvas is left alone until you do" }
 };
 const LINEMAX = 2000;        // past this many points the connector lines switch off so drawing stays smooth (the point count itself is unlimited)
 const LEGENDMAX = 24;        // K itself is unbounded; the legend just stops listing past this and shows "+n more"
@@ -1052,6 +1053,7 @@ function onKey(e){
   else if(k === "e") setTool("eraser");
   else if(k === "h") setTool("hand");
   else if(k === "c") setTool("centroid");
+  else if(k === "r") setTool("random");
   else if(e.key === "Delete" || e.key === "Backspace"){
     if(busy()) say(BUSYMSG);
     else if(S.sel >= 0) deleteCentroid(S.sel);
@@ -1061,6 +1063,10 @@ function onKey(e){
   else if(e.key === "-" || e.key === "_") zoomAt(cw / 2, ch / 2, 1 / 1.25);
   else if(e.key === "0") resetView();
   else if(k === "f") focusView();
+  else if(k === "g"){                                   // feedback 6: the random button is a tool-bar action now
+    if($("bGen").disabled) say("🎲 needs n ≥ K first — raise n or lower K");
+    else generate();
+  }
 }
 
 canvas.addEventListener("pointerdown", onDown);

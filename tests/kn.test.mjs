@@ -2,7 +2,7 @@
 import { test, describe, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { app, dom, reset, seed, unseed, setPoints, input, msg } from "./helpers.mjs";
+import { app, dom, reset, seed, unseed, setPoints, input, msg, key, down, move, up } from "./helpers.mjs";
 
 after(() => unseed());
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
@@ -250,7 +250,6 @@ describe("Feedback 4: both a slider and an input field", () => {
   test("dragging the n slider drives n, and generate honours it", () => {
     input("inNR", 42);
     assert.equal(dom.el("inN").value, "42");
-    assert.equal(dom.el("lblN").textContent, "42");
     app.generate();
     assert.ok(Math.abs(app.S.points.length - 42) <= 6, `got ${app.S.points.length}`);
   });
@@ -391,11 +390,66 @@ describe("Feedback 5: K and the data points relate the way the theory says", () 
     assert.ok(!dom.el("inN").classList.contains("bad"));
   });
 
-  test("the generate button lives with the n control it reads, not off in the button row", () => {
-    const iN = html.indexOf('id="inNR"'), iB = html.indexOf('id="bGen"'), iNote = html.indexOf('id="nNote"');
-    assert.ok(iN > 0 && iB > 0 && iNote > 0);
-    assert.ok(iB > iN && iB < iNote,
-      "bGen must sit inside the Random points (n) group, between the slider and its note");
+  test("n, its slider and Generate all live in the 🎲 tool's own option group", () => {
+    const from = html.indexOf('id="randOpts"'), to = html.indexOf('id="brushOpts"');
+    assert.ok(from > 0 && to > from, "#randOpts must sit beside #brushOpts in the toolbar");
+    const grp = html.slice(from, to);
+    for(const id of ['id="inN"', 'id="inNR"', 'id="bGen"', 'id="nNote"'])
+      assert.ok(grp.includes(id), `${id} must live inside #randOpts`);
+  });
+
+  test("the random group sits in the tools bar, not in the controls grid", () => {
+    const bar = html.indexOf('class="toolbar"'), canvasWrap = html.indexOf('class="canvasWrap"');
+    const rand = html.indexOf('id="randOpts"');
+    assert.ok(bar > 0 && rand > bar && rand < canvasWrap,
+      "#randOpts must be inside the toolbar, above the canvas");
+  });
+
+  /* feedback 7 reverses the feedback-6 reading: 🎲 must be a real tool, like the pen or the brush */
+  test("🎲 is a real tool button, sitting with the pen and the brush", () => {
+    const tools = html.match(/class="tool"/g) || [];
+    assert.equal(tools.length, 7, "six canvas tools plus 🎲");
+    assert.match(html, /<button class="tool" data-tool="random"/);
+    assert.ok(app.TOOLS.random, "and it must be a real entry in the TOOLS map");
+    const grpEnd = html.indexOf('id="randOpts"');
+    assert.ok(html.lastIndexOf('data-tool="random"', grpEnd) > html.lastIndexOf('data-tool="pen"', grpEnd) - 1,
+      "it belongs in the same button group as the other tools");
+  });
+
+  test("n behaves like the brush's Size: shown only while its tool is active", () => {
+    app.setTool("random");
+    assert.equal(dom.el("randOpts").style.display, "", "visible with the 🎲 tool selected");
+    assert.equal(dom.el("brushOpts").style.display, "none", "and the brush's options step aside");
+    app.setTool("brush");
+    assert.equal(dom.el("randOpts").style.display, "none", "hidden again once another tool takes over");
+    assert.equal(dom.el("brushOpts").style.display, "");
+  });
+
+  test("the R shortcut selects the 🎲 tool, and G still generates", () => {
+    key("r");
+    assert.equal(app.S.tool, "random");
+    input("inK", 1);
+    input("inN", 30);
+    key("g");
+    assert.equal(app.S.points.length, 30, "G must generate without touching the button");
+  });
+
+  test("selecting 🎲 leaves the canvas alone — it is not a drawing tool", () => {
+    setPoints(line(10));
+    app.setTool("random");
+    const before = app.S.points.length;
+    down(400, 250); move(430, 260); up();
+    assert.equal(app.S.points.length, before, "clicking or dragging must add nothing");
+  });
+
+  test("🎲 is disabled mid-run like every other editing tool", () => {
+    app.S.running = true;
+    app.sync();
+    const btn = dom.tools.find(b => b.dataset.tool === "random");
+    assert.ok(btn && btn.disabled, "the 🎲 tool must go dim while the algorithm runs");
+    app.S.running = false;
+    app.sync();
+    assert.equal(btn.disabled, false);
   });
 });
 
