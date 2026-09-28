@@ -182,3 +182,6 @@ function kQualityHint(K, N) {
 * move random button to tools bar and randompoint function this opption for randombutton tools
 ## Feedback 7 
 * ให้ย้าย Radombuttonไป ในtoolsbar จริงๆเหมือน bush  หรือpen ส่วน fuction randompotion ให้เป็นเหมือนการปรับขนาดปากกานั้นแหละ เป็น optionของ Randombutton
+# feedback8 
+* แก้ปัญหาอาการหน่วงlag กินทรัพยากรให้หน่อย แก้แล้วบอกด้วย ในlogว่าาเกิดจากอะไรแก้ด้วยวิธีไหน
+

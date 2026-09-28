@@ -432,5 +432,47 @@ export default async function run(page){
      (await page.locator(".cluster-status-item.active").count()) === 0,
      await page.locator(".cluster-status-item.active").count());
 
+  /* ===== feedback 8: the lag / resource drain =====
+     index.html mirrors its repaint count onto #canvas[data-paints], so idleness is observable from
+     the DOM. Before the fix this counter climbed ~60 a second forever, whatever the user was doing. */
+  const paints = async () => Number(await page.locator("#canvas").getAttribute("data-paints"));
+
+  await page.mouse.move(5, 5);              // pointer off the canvas, nothing hovered
+  await page.waitForTimeout(900);           // let any animation in flight finish
+  const idleA = await paints();
+  await page.waitForTimeout(1500);
+  const idleB = await paints();
+  ok("an idle page repaints zero times (feedback 8)", idleB === idleA,
+     { over1500ms: idleB - idleA, before: idleA, after: idleB });
+  ok("the paint counter is actually wired up", idleA > 0, idleA);
+
+  await page.mouse.move(cx, cy);
+  await page.mouse.wheel(0, -240);          // zooming must still repaint
+  await page.waitForTimeout(250);
+  const afterZoom = await paints();
+  ok("zooming wakes the render loop back up (feedback 8)", afterZoom > idleB, { idleB, afterZoom });
+
+  await page.waitForTimeout(1200);
+  const settled = await paints();
+  await page.waitForTimeout(1200);
+  ok("and it goes back to sleep once the view settles (feedback 8)", (await paints()) === settled,
+     { settled, after: await paints() });
+
+  await page.locator(String.raw`.tool[data-tool="hand"]`).click();
+  const beforeRun = await paints();
+  await page.locator("#bInit").click();
+  await page.locator("#bRun").click();
+  await page.waitForFunction(() => /Converged|Stop/.test(document.getElementById("msg")?.textContent || ""),
+                             null, { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(1500);
+  ok("a running animation still gets its frames (feedback 8)", (await paints()) > beforeRun + 5,
+     { beforeRun, after: await paints() });
+
+  await page.waitForTimeout(1200);
+  const afterRun = await paints();
+  await page.waitForTimeout(1500);
+  ok("and the loop stops again when the algorithm converges (feedback 8)", (await paints()) === afterRun,
+     { afterRun, after: await paints() });
+
   return { passed: checks.filter(c => c.startsWith("PASS")).length, failed: fail.length, checks, fail };
 }

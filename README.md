@@ -59,6 +59,11 @@ instead of being discarded.
 the centroid connector lines automatically (the checkbox says so) and shrinks the dot radius as the count grows, so
 drawing stays smooth however much you paint.
 
+**The page is idle when you are.** The canvas is only repainted when something actually changes — moving the
+cursor, panning, zooming, drawing, or an animation in flight. Leave the tab open and untouched and it draws
+nothing at all and uses no CPU, instead of repainting sixty times a second in the background. Drawing cost also
+does not grow with how full the canvas already is: nothing done per mouse-move scales with the point count.
+
 **Panning and zooming**
 
 - The mouse wheel zooms **around the point under the cursor** (40%–800%).
