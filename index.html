@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>K-Means Clustering — Interactive Visualizer</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:#0b1020; --panel:#121a33; --panel2:#0f1730; --line:#25304f;
     --ink:#e8edfb; --muted:#93a0c2; --accent:#60a5fa;
   }
-  html,body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif}
+  html,body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans','IBM Plex Sans Thai',system-ui,sans-serif}
   .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:16px}
   .card2{background:var(--panel2);border:1px solid var(--line);border-radius:12px}
@@ -298,6 +298,18 @@ km = KMeans(n_clusters=2, random_state=0).fit(X)
 km.labels_          # [0 0 0 1 1 1]
 km.cluster_centers_ # [[1. 2.] [4. 2.]]</pre>
       </details>
+
+      <div class="card p-3">
+        <div class="text-[10px] uppercase tracking-widest text-[var(--muted)] mb-2">ผู้จัดทำ · Team</div>
+        <div class="text-[13px] font-semibold mb-2">Board Game Party</div>
+        <ul class="text-[12px] space-y-1.5 leading-relaxed">
+          <li class="flex items-baseline gap-2.5"><span class="mono text-[11px] text-[var(--accent)] shrink-0">67015022</span><span>จารุเดช พนาลัย</span></li>
+          <li class="flex items-baseline gap-2.5"><span class="mono text-[11px] text-[var(--accent)] shrink-0">67015024</span><span>จิรภัทร จันทกนกากร</span></li>
+          <li class="flex items-baseline gap-2.5"><span class="mono text-[11px] text-[var(--accent)] shrink-0">67015060</span><span>ธนากร รัตนสวัสดิ์</span></li>
+          <li class="flex items-baseline gap-2.5"><span class="mono text-[11px] text-[var(--accent)] shrink-0">67015108</span><span>ภูชิต คงยาง</span></li>
+          <li class="flex items-baseline gap-2.5"><span class="mono text-[11px] text-[var(--accent)] shrink-0">67015164</span><span>อัครชัย วิเชียร</span></li>
+        </ul>
+      </div>
 
     </aside>
   </div>
